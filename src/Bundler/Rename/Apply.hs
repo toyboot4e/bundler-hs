@@ -39,6 +39,19 @@ data ResolveEnv = ResolveEnv
   , reUnqualLocal :: Map OccKey [(ModuleName, String)]
   -- ^ Names reachable unqualified via imports of local modules -> their
   -- planned new names (several entries = ambiguous if actually used).
+  , reQualExt :: Map ModuleName ModuleName
+  -- ^ Written qualifier -> external module; references are rewritten to
+  -- the canonical (fully-qualified) form. Only populated for library
+  -- files: the user's own imports survive verbatim.
+  , reUnqualExt :: Map OccKey ModuleName
+  -- ^ Names a library file imported from an external module via an
+  -- explicit import list; the import is dropped and uses are rewritten to
+  -- the canonical qualified form.
+  , reOpenExtImports :: [LImportDecl GhcPs]
+  -- ^ A library file's open / @hiding@ / complex-list unqualified external
+  -- imports: origins of individual names are unknowable without package
+  -- interfaces, so these are kept verbatim (GHC's scope-union semantics
+  -- make repeated imports of one module behave correctly).
   }
 
 -- | Build the environment for one file from its imports of local modules.
@@ -65,9 +78,52 @@ mkResolveEnv plan symsOf self pf = do
             , m `Map.member` symsOf
             ]
       , reUnqualLocal = Map.unionsWith (<>) unqual
+      , reQualExt = if isLibrary then Map.fromList (concatMap (qualExtOf . unLoc) imports) else Map.empty
+      , reUnqualExt = if isLibrary then Map.fromList (concatMap (unqualExtOf . unLoc) imports) else Map.empty
+      , reOpenExtImports = if isLibrary then filter (isOpenExt . unLoc) imports else []
       }
   where
     imports = hsmodImports (unLoc (pfModule pf))
+    isLibrary = self /= Nothing
+    wrappedKey = occKeyOf . ieWrappedName . unLoc
+
+    isExternal imp = not (unLoc (ideclName imp) `Map.member` symsOf)
+
+    -- Every external import (any style) allows qualified access via its
+    -- alias or module name; all such references become canonical.
+    qualExtOf imp
+      | isExternal imp =
+          [(maybe m unLoc (ideclAs imp), m)]
+      | otherwise = []
+      where
+        m = unLoc (ideclName imp)
+
+    -- Explicit-list unqualified externals: origins are exact, so the
+    -- import is dropped and each listed name rewrites to qualified form.
+    unqualExtOf imp
+      | isExternal imp
+      , NotQualified <- ideclQualified imp
+      , Just (Exactly, L _ items) <- ideclImportList imp
+      , Just keys <- traverse (simpleItemKeys . unLoc) items =
+          [(key, unLoc (ideclName imp)) | key <- concat keys]
+      | otherwise = []
+
+    -- Import-list items whose names are fully known without package
+    -- interfaces. IEThingAll (@T(..)@) is not: its children are unknown.
+    simpleItemKeys :: IE GhcPs -> Maybe [OccKey]
+    simpleItemKeys ie = case ie of
+      IEVar _ n _ -> Just [wrappedKey n]
+      IEThingAbs _ n _ -> Just [wrappedKey n]
+      IEThingWith _ n _ subs _ ->
+        Just (wrappedKey n : concatMap (bothKeys . wrappedKey) subs)
+      _ -> Nothing
+      where
+        bothKeys (_, name) = [(NsValue, name), (NsData, name)]
+
+    isOpenExt imp =
+      isExternal imp
+        && ideclQualified imp == NotQualified
+        && null (unqualExtOf imp)
 
     unqualsOf :: ImportDecl GhcPs -> M [Map OccKey [(ModuleName, String)]]
     unqualsOf imp
@@ -164,7 +220,9 @@ applyRenames plan symsOf env decls = do
         , Just new <- lookupPlan self (occKeyOf rdr) ->
             Right (unqual occ new)
         | otherwise -> case Map.lookup (occKeyOf rdr) (reUnqualLocal env) of
-            Nothing -> Right rdr
+            Nothing -> case Map.lookup (occKeyOf rdr) (reUnqualExt env) of
+              Just m -> Right (Qual m occ)
+              Nothing -> Right rdr
             Just [(_, new)] -> Right (unqual occ new)
             Just several ->
               Left
@@ -182,6 +240,8 @@ applyRenames plan symsOf env decls = do
                       (moduleNameString q <> "." <> occNameString occ)
                       (moduleNameString m)
                   )
+        | Just m <- Map.lookup q (reQualExt env) ->
+            Right (Qual m occ)
       _ -> Right rdr
 
     lookupPlan m key = Map.lookup m (rpByModule plan) >>= Map.lookup key

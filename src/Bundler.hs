@@ -24,7 +24,7 @@ import GHC.Hs qualified
 import GHC.Types.SrcLoc (unLoc)
 import Language.Haskell.Syntax.Module.Name (moduleNameString)
 import System.FilePath (takeDirectory)
-import System.IO (readFile')
+import System.IO (hPutStrLn, readFile', stderr)
 
 -- | Run the whole pipeline, producing the bundled source for stdout.
 --
@@ -42,21 +42,39 @@ bundle cfg = runExceptT $ do
   let withSyms = [(lm, moduleSymbols (lmParsed lm)) | lm <- locals]
   plan <- ExceptT (pure (mkRenamePlan userFile (moduleSymbols userFile) withSyms))
   let symsOf = Map.fromList [(lmName lm, syms) | (lm, syms) <- withSyms]
-      renameIn self pf = do
-        env <- mkResolveEnv plan symsOf self pf
-        applyRenames plan symsOf env (declsOf pf)
-  renamedLocals <-
+      renameWith env pf = applyRenames plan symsOf env (declsOf pf)
+  libEnvs <-
     traverse
-      (\lm -> ExceptT (pure ((,) lm <$> renameIn (Just (lmName lm)) (lmParsed lm))))
+      (\lm -> ExceptT (pure (mkResolveEnv plan symsOf (Just (lmName lm)) (lmParsed lm))))
       locals
-  renamedUser <- ExceptT (pure (renameIn Nothing userFile))
-  let out =
+  userEnv <- ExceptT (pure (mkResolveEnv plan symsOf Nothing userFile))
+  renamedLocals <-
+    sequence
+      [ ExceptT (pure ((,) lm <$> renameWith env (lmParsed lm)))
+      | (lm, env) <- zip locals libEnvs
+      ]
+  renamedUser <- ExceptT (pure (renameWith userEnv userFile))
+  let canonicalExts =
+        Set.toAscList . Set.fromList . concat $
+          [Map.elems (reQualExt e) <> Map.elems (reUnqualExt e) | e <- libEnvs]
+      keptOpen = nubOrd (map renderImport (concatMap reOpenExtImports libEnvs))
+      extImportLines =
+        ["import qualified " <> moduleNameString m | m <- canonicalExts] <> keptOpen
+      out =
         assemble
           userDefaults
           [defs | (_, _, defs) <- srcDirs]
           userFile
+          extImportLines
           renamedUser
-          [(lm, decls) | (lm, decls) <- renamedLocals]
+          renamedLocals
+  case keptOpen of
+    [] -> pure ()
+    kept ->
+      liftIO . hPutStrLn stderr $
+        "note: kept library imports whose names cannot be attributed:\n"
+          <> unlines (map ("  " <>) kept)
+          <> "these may make names ambiguous in the bundle"
   ExceptT (selfCheck out)
   where
     dirDefaults :: FilePath -> ExceptT BundleError IO (FilePath, DynFlags, ProjectDefaults)
@@ -76,10 +94,11 @@ assemble
   :: ProjectDefaults
   -> [ProjectDefaults]
   -> ParsedFile
+  -> [String]
   -> [GHC.Hs.LHsDecl GHC.Hs.GhcPs]
   -> [(LocalModule, [GHC.Hs.LHsDecl GHC.Hs.GhcPs])]
   -> String
-assemble userDefaults libDefaults userFile userDecls locals =
+assemble userDefaults libDefaults userFile extImportLines userDecls locals =
   intercalate "\n\n" (filter (not . null) chunks) <> "\n"
   where
     chunks =
@@ -99,14 +118,14 @@ assemble userDefaults libDefaults userFile userDecls locals =
         ]
 
     localNames = Set.fromList (map (lmName . fst) locals)
-    keptImports pf =
-      [ imp
-      | imp <- hsmodImports (unLoc (pfModule pf))
+    -- The user's imports survive verbatim (minus expanded local modules);
+    -- library imports arrive pre-digested as canonical/kept lines.
+    userImports =
+      [ renderImport imp
+      | imp <- hsmodImports (unLoc (pfModule userFile))
       , unLoc (ideclName (unLoc imp)) `Set.notMember` localNames
       ]
-    imports =
-      nubOrd . map renderImport . concat $
-        keptImports userFile : map (keptImports . lmParsed . fst) locals
+    imports = nubOrd (userImports <> extImportLines)
 
     localChunk (lm, decls) =
       intercalate "\n\n" $
