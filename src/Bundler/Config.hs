@@ -19,7 +19,8 @@ data Config = Config
     -- (@--rename-cmd CMD@).
     cfgRenameCmd :: Maybe String,
     -- | Optional formatter the finished bundle is piped through
-    -- (@--format-cmd CMD@, e.g. @ormolu@).
+    -- (@--format-cmd CMD@, e.g.
+    -- @--format-cmd \'ormolu --stdin-input-file Bundle.hs\'@).
     cfgFormatCmd :: Maybe String
   }
   deriving (Show)
@@ -49,7 +50,8 @@ configParser =
       ( strOption
           ( long "format-cmd"
               <> metavar "CMD"
-              <> help "Formatter to pipe the bundle through (stdin to stdout), e.g. ormolu"
+              <> help
+                "Shell command to pipe the bundle through (stdin to stdout), e.g. 'ormolu --stdin-input-file Bundle.hs'"
           )
       )
 

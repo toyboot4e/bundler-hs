@@ -21,7 +21,9 @@ $ bundler-hs Main.hs --src path/to/your/library > submission.hs
   stays a normal import.
 - Output goes to stdout; all errors go to stderr with a non-zero exit.
 - `--format-cmd CMD`: pipe the finished bundle through a formatter
-  (stdin to stdout), e.g. `--format-cmd ormolu`. The formatted result is
+  (stdin to stdout). CMD is a full shell command, so formatter flags go
+  inside it, e.g. `--format-cmd 'ormolu --stdin-input-file Bundle.hs'`
+  (ormolu requires that flag when reading stdin). The formatted result is
   re-parsed before it reaches stdout.
 
 ## Renaming
