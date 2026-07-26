@@ -1,13 +1,14 @@
 module Bundler.Symbols
-  ( NsKey (..)
-  , OccKey
-  , SymKind (..)
-  , ModuleSymbols (..)
-  , moduleSymbols
-  , nsKeyOf
-  , occKeyOf
-  , isOperatorString
-  ) where
+  ( NsKey (..),
+    OccKey,
+    SymKind (..),
+    ModuleSymbols (..),
+    moduleSymbols,
+    nsKeyOf,
+    occKeyOf,
+    isOperatorString,
+  )
+where
 
 import Bundler.Parse
 import Data.Char (isAlphaNum)
@@ -45,16 +46,16 @@ data SymKind
 -- | Every top-level binder of one module, plus the export/children structure
 -- needed to interpret import and export lists.
 data ModuleSymbols = ModuleSymbols
-  { msAll :: Map OccKey SymKind
-  -- ^ Every top-level binder, exported or not.
-  , msExported :: Set OccKey
-  -- ^ Subset of 'msAll' visible to importers.
-  , msChildren :: Map String [OccKey]
-  -- ^ Type/class name -> its constructors, fields, and methods (for
-  -- @T(..)@ in import/export lists).
-  , msFieldsOf :: Map String [String]
-  -- ^ Data constructor name -> its record field names (for wildcard and
-  -- pun expansion).
+  { -- | Every top-level binder, exported or not.
+    msAll :: Map OccKey SymKind,
+    -- | Subset of 'msAll' visible to importers.
+    msExported :: Set OccKey,
+    -- | Type/class name -> its constructors, fields, and methods (for
+    -- @T(..)@ in import/export lists).
+    msChildren :: Map String [OccKey],
+    -- | Data constructor name -> its record field names (for wildcard and
+    -- pun expansion).
+    msFieldsOf :: Map String [String]
   }
   deriving (Show)
 
@@ -77,10 +78,10 @@ isOperatorString = not . all (\c -> isAlphaNum c || c `elem` "_'")
 moduleSymbols :: ParsedFile -> ModuleSymbols
 moduleSymbols pf =
   ModuleSymbols
-    { msAll = allSyms
-    , msExported = exported
-    , msChildren = childrenMap
-    , msFieldsOf = Map.fromListWith (<>) fieldsOf
+    { msAll = allSyms,
+      msExported = exported,
+      msChildren = childrenMap,
+      msFieldsOf = Map.fromListWith (<>) fieldsOf
     }
   where
     childrenMap = Map.fromListWith (<>) children
@@ -144,8 +145,8 @@ declBinders decl = case decl of
       PatSynBind _ (PSB {psb_id = n, psb_args = details}) ->
         (rdrKey n, SymPatSyn, Nothing, Nothing)
           : [ (occKeyOf (unLoc (foLabel (recordPatSynField fld))), SymValue, Nothing, Nothing)
-            | RecCon flds <- [details]
-            , fld <- flds
+            | RecCon flds <- [details],
+              fld <- flds
             ]
       -- VarBind and trees-that-grow extension constructors.
       _ -> []
@@ -163,12 +164,12 @@ declBinders decl = case decl of
         let clsName = snd (rdrKey n)
          in (rdrKey n, SymClass, Nothing, Nothing)
               : [ (rdrKey m, SymClassMethod, Just clsName, Nothing)
-                | ClassOpSig _ False ms _ <- map unLoc sigs
-                , m <- ms
+                | ClassOpSig _ False ms _ <- map unLoc sigs,
+                  m <- ms
                 ]
-              <> [ (rdrKey (fdLName (unLoc at)), SymTyCon, Just clsName, Nothing)
-                 | at <- ats
-                 ]
+                <> [ (rdrKey (fdLName (unLoc at)), SymTyCon, Just clsName, Nothing)
+                   | at <- ats
+                   ]
       _ -> []
 
     conBinders tyName con = case con of
@@ -187,8 +188,8 @@ declBinders decl = case decl of
                 RecConGADT _ flds ->
                   concat
                     [ fieldBinders tyName conName (unLoc fld)
-                    | fld <- unLoc flds
-                    , conName <- conNames
+                    | fld <- unLoc flds,
+                      conName <- conNames
                     ]
                 _ -> []
       _ -> []
@@ -196,7 +197,7 @@ declBinders decl = case decl of
     fieldBinders tyName conName fld' = case fld' of
       ConDeclField {cd_fld_names = ns} ->
         [ ((NsValue, name), SymField, Just tyName, Just conName)
-        | fld <- ns
-        , let name = occNameString (rdrNameOcc (unLoc (foLabel (unLoc fld))))
+        | fld <- ns,
+          let name = occNameString (rdrNameOcc (unLoc (foLabel (unLoc fld))))
         ]
       _ -> []

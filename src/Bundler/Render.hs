@@ -1,19 +1,20 @@
 module Bundler.Render
-  ( renderSDoc
-  , renderModule
-  , renderModuleHeader
-  , renderImport
-  , renderDecl
-  ) where
+  ( renderSDoc,
+    renderModule,
+    renderModuleHeader,
+    renderImport,
+    renderDecl,
+  )
+where
 
 import GHC.Hs (GhcPs, HsModule (..), LHsDecl, LImportDecl)
 import GHC.Types.SrcLoc (Located, unLoc)
 import GHC.Utils.Outputable
-  ( SDoc
-  , defaultSDocContext
-  , ppr
-  , renderWithContext
-  , sdocLineLength
+  ( SDoc,
+    defaultSDocContext,
+    ppr,
+    renderWithContext,
+    sdocLineLength,
   )
 
 -- | Render with a generous line length: the pretty-printer's wrapping is the

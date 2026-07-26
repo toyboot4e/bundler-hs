@@ -1,75 +1,81 @@
-cabal-version:      3.0
-name:               bundler-hs
-version:            0.1.0.0
-synopsis:           Bundle a Haskell source file with its local library modules into one file
+cabal-version: 3.0
+name:          bundler-hs
+version:       0.1.0.0
+synopsis:
+  Bundle a Haskell source file with its local library modules into one file
+
 description:
   Expands imports of local library modules in a single Haskell source file,
   recursively, renaming every top-level name with a module-derived suffix so
   the result compiles as one self-contained module (for competitive
   programming judges).
-license:            MIT
-author:             toyboot4e
-maintainer:         toyboot4e@gmail.com
-build-type:         Simple
+
+license:       MIT
+author:        toyboot4e
+maintainer:    toyboot4e@gmail.com
+build-type:    Simple
 
 common warnings
-    ghc-options:      -Wall -Wcompat -Widentities -Wincomplete-record-updates
-                      -Wincomplete-uni-patterns -Wmissing-export-lists
-                      -Wredundant-constraints
-    default-language: GHC2021
+  ghc-options:
+    -Wall -Wcompat -Widentities -Wincomplete-record-updates
+    -Wincomplete-uni-patterns -Wmissing-export-lists
+    -Wredundant-constraints
+
+  default-language: GHC2021
 
 library
-    import:           warnings
-    hs-source-dirs:   src
-    exposed-modules:
-        Bundler
-        Bundler.Cabal
-        Bundler.Config
-        Bundler.Discovery
-        Bundler.Error
-        Bundler.Parse
-        Bundler.Render
-        Bundler.Rename.Apply
-        Bundler.Rename.Plan
-        Bundler.RenameCmd
-        Bundler.Symbols
-    build-depends:
-        base                 >=4.18 && <5
-      , bytestring
-      , Cabal-syntax         >=3.12 && <3.17
-      , containers
-      , directory
-      , filepath
-      , ghc-lib-parser       ==9.12.*
-      , ghc-lib-parser-ex    ==9.12.*
-      , optparse-applicative
-      , syb
-      , text
-      , transformers
-      , typed-process
-      , uniplate
+  import:          warnings
+  hs-source-dirs:  src
+  exposed-modules:
+    Bundler
+    Bundler.Cabal
+    Bundler.Config
+    Bundler.Discovery
+    Bundler.Error
+    Bundler.Parse
+    Bundler.Rename.Apply
+    Bundler.Rename.Plan
+    Bundler.RenameCmd
+    Bundler.Render
+    Bundler.Symbols
+
+  build-depends:
+    , base                  >=4.18 && <5
+    , bytestring
+    , Cabal-syntax          >=3.12 && <3.17
+    , containers
+    , directory
+    , filepath
+    , ghc-lib-parser        >=9.12 && <9.13
+    , ghc-lib-parser-ex     >=9.12 && <9.13
+    , optparse-applicative
+    , syb
+    , text
+    , transformers
+    , typed-process
+    , uniplate
 
 executable bundler-hs
-    import:           warnings
-    hs-source-dirs:   app
-    main-is:          Main.hs
-    build-depends:
-        base
-      , bundler-hs
-      , optparse-applicative
+  import:         warnings
+  hs-source-dirs: app
+  main-is:        Main.hs
+  build-depends:
+    , base
+    , bundler-hs
+    , optparse-applicative
 
 test-suite bundler-hs-test
-    import:           warnings
-    type:             exitcode-stdio-1.0
-    hs-source-dirs:   test
-    main-is:          Main.hs
-    build-depends:
-        base
-      , bytestring
-      , directory
-      , filepath
-      , bundler-hs
-      , process
-      , tasty
-      , tasty-golden
-      , tasty-hunit
+  import:         warnings
+  type:           exitcode-stdio-1.0
+  hs-source-dirs: test
+  main-is:        Main.hs
+  build-depends:
+    , base
+    , bundler-hs
+    , bytestring
+    , directory
+    , filepath
+    , process
+    , tasty
+    , tasty-golden
+    , tasty-hunit

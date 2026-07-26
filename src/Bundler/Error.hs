@@ -1,7 +1,8 @@
 module Bundler.Error
-  ( BundleError (..)
-  , renderBundleError
-  ) where
+  ( BundleError (..),
+    renderBundleError,
+  )
+where
 
 import Data.List (intercalate)
 
@@ -45,13 +46,13 @@ renderBundleError err = case err of
     "error: failed to parse " <> path <> ":\n" <> msg
   SelfCheckError msg output ->
     unlines
-      [ "internal error: the generated bundle does not re-parse."
-      , "This is a bug in haskell-source-bundler; please report it."
-      , ""
-      , msg
-      , ""
-      , "--- generated output ---"
-      , output
+      [ "internal error: the generated bundle does not re-parse.",
+        "This is a bug in haskell-source-bundler; please report it.",
+        "",
+        msg,
+        "",
+        "--- generated output ---",
+        output
       ]
   CppNotSupported path ->
     "error: " <> path <> " uses CPP, which the bundler cannot preprocess"
@@ -74,7 +75,7 @@ renderBundleError err = case err of
     unlines
       ( ("error: renamed name " <> name <> " collides between:")
           : map ("  - " <>) origins
-          <> ["hint: use --rename-cmd to pick different names"]
+            <> ["hint: use --rename-cmd to pick different names"]
       )
   UnknownQualifiedName written m ->
     "error: "

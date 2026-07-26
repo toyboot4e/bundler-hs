@@ -1,7 +1,8 @@
 module Bundler.Cabal
-  ( ProjectDefaults (..)
-  , findProjectDefaults
-  ) where
+  ( ProjectDefaults (..),
+    findProjectDefaults,
+  )
+where
 
 import Bundler.Error
 import Data.ByteString qualified as BS
@@ -24,13 +25,13 @@ import System.FilePath (takeDirectory, takeExtension, (</>))
 -- one code path (GHC's own pragma parser) interprets cabal defaults, and the
 -- same lines can be re-emitted into the bundle's pragma block.
 data ProjectDefaults = ProjectDefaults
-  { pdRoot :: FilePath
-  -- ^ Directory holding the @.cabal@ file, or the starting directory when no
-  -- project was found.
-  , pdPragmas :: [String]
-  -- ^ Synthesized @{-\# LANGUAGE ... \#-}@ lines: @default-language@ first
-  -- (editions like GHC2021 are valid pragmas), then @default-extensions@,
-  -- unioned over every stanza and conditional branch.
+  { -- | Directory holding the @.cabal@ file, or the starting directory when no
+    -- project was found.
+    pdRoot :: FilePath,
+    -- | Synthesized @{-\# LANGUAGE ... \#-}@ lines: @default-language@ first
+    -- (editions like GHC2021 are valid pragmas), then @default-extensions@,
+    -- unioned over every stanza and conditional branch.
+    pdPragmas :: [String]
   }
   deriving (Show)
 
@@ -59,8 +60,8 @@ readDefaults root path = do
     Just gpd ->
       Right
         ProjectDefaults
-          { pdRoot = root
-          , pdPragmas = map mkPragma (nubOrd (languages <> extensions))
+          { pdRoot = root,
+            pdPragmas = map mkPragma (nubOrd (languages <> extensions))
           }
       where
         infos = allBuildInfos gpd
@@ -76,11 +77,11 @@ mkPragma s = "{-# LANGUAGE " <> s <> " #-}"
 allBuildInfos :: GenericPackageDescription -> [BuildInfo]
 allBuildInfos gpd =
   concat
-    [ map libBuildInfo (flattenAll (maybeToList (condLibrary gpd)))
-    , map libBuildInfo (flattenAll (map snd (condSubLibraries gpd)))
-    , map buildInfo (flattenAll (map snd (condExecutables gpd)))
-    , map testBuildInfo (flattenAll (map snd (condTestSuites gpd)))
-    , map benchmarkBuildInfo (flattenAll (map snd (condBenchmarks gpd)))
+    [ map libBuildInfo (flattenAll (maybeToList (condLibrary gpd))),
+      map libBuildInfo (flattenAll (map snd (condSubLibraries gpd))),
+      map buildInfo (flattenAll (map snd (condExecutables gpd))),
+      map testBuildInfo (flattenAll (map snd (condTestSuites gpd))),
+      map benchmarkBuildInfo (flattenAll (map snd (condBenchmarks gpd)))
     ]
   where
     flattenAll = concatMap flattenCondTree

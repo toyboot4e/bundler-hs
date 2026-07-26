@@ -1,29 +1,30 @@
 {-# LANGUAGE TypeApplications #-}
 
 module Bundler.Parse
-  ( ParsedFile (..)
-  , baseDynFlags
-  , applyPragmaLines
-  , parseHaskellFile
-  ) where
+  ( ParsedFile (..),
+    baseDynFlags,
+    applyPragmaLines,
+    parseHaskellFile,
+  )
+where
 
 import Bundler.Error
 import GHC.Data.Bag (bagToList)
 import GHC.Driver.Session (DynFlags, defaultDynFlags, xopt)
-import GHC.LanguageExtensions.Type qualified as LangExt
 import GHC.Hs (GhcPs, HsModule)
+import GHC.LanguageExtensions.Type qualified as LangExt
 import GHC.Parser.Errors.Types (PsMessage)
 import GHC.Parser.Lexer (PState, ParseResult (..), getPsErrorMessages)
 import GHC.Types.Error
-  ( MsgEnvelope (..)
-  , defaultDiagnosticOpts
-  , diagnosticMessage
-  , getMessages
-  , unDecorated
+  ( MsgEnvelope (..),
+    defaultDiagnosticOpts,
+    diagnosticMessage,
+    getMessages,
+    unDecorated,
   )
 import GHC.Types.SrcLoc (Located)
 import GHC.Utils.Outputable (ppr, vcat, (<+>))
-import qualified GHC.Utils.Outputable as O
+import GHC.Utils.Outputable qualified as O
 import Language.Haskell.GhclibParserEx.GHC.Driver.Session (parsePragmasIntoDynFlags)
 import Language.Haskell.GhclibParserEx.GHC.Parser (parseFile)
 import Language.Haskell.GhclibParserEx.GHC.Settings.Config (fakeSettings)
@@ -32,10 +33,10 @@ import Language.Haskell.GhclibParserEx.GHC.Settings.Config (fakeSettings)
 -- parsed under (needed again for the output self-check) and its raw header
 -- pragma lines (re-emitted verbatim into the bundle).
 data ParsedFile = ParsedFile
-  { pfPath :: FilePath
-  , pfModule :: Located (HsModule GhcPs)
-  , pfDynFlags :: DynFlags
-  , pfPragmas :: [String]
+  { pfPath :: FilePath,
+    pfModule :: Located (HsModule GhcPs),
+    pfDynFlags :: DynFlags,
+    pfPragmas :: [String]
   }
 
 -- | Flags before any per-project or per-file additions.
@@ -70,10 +71,10 @@ parseHaskellFile dflags path src = do
         POk _ modl ->
           Right
             ParsedFile
-              { pfPath = path
-              , pfModule = modl
-              , pfDynFlags = flags
-              , pfPragmas = extractHeaderPragmas src
+              { pfPath = path,
+                pfModule = modl,
+                pfDynFlags = flags,
+                pfPragmas = extractHeaderPragmas src
               }
         PFailed st -> Left (ParseError path (renderPsErrors st))
 

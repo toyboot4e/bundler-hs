@@ -1,10 +1,11 @@
 module Bundler.RenameCmd
-  ( Renamer
-  , RenameQuery (..)
-  , startRenamer
-  , queryRenamer
-  , stopRenamer
-  ) where
+  ( Renamer,
+    RenameQuery (..),
+    startRenamer,
+    queryRenamer,
+    stopRenamer,
+  )
+where
 
 import Bundler.Error
 import Bundler.Symbols (isOperatorString)
@@ -25,15 +26,15 @@ import System.Process.Typed
 -- A script reproduces the default behavior with @echo "$name$suffix"@
 -- (and @echo "$name"@ for @op@/@extmod@).
 data RenameQuery = RenameQuery
-  { rqKind :: String
-  , rqModule :: String
-  , rqSuffix :: String
-  , rqName :: String
+  { rqKind :: String,
+    rqModule :: String,
+    rqSuffix :: String,
+    rqName :: String
   }
 
 data Renamer = Renamer
-  { rProcess :: Process Handle Handle ()
-  , rCmd :: String
+  { rProcess :: Process Handle Handle (),
+    rCmd :: String
   }
 
 startRenamer :: String -> IO Renamer
@@ -80,8 +81,8 @@ validateResponse q new
   | rqKind q == "extmod" = Right new
   | isOperatorString (rqName q) /= isOperatorString new =
       bad "operator/identifier class mismatch"
-  | not (isOperatorString new)
-  , mismatchedCase (rqName q) new =
+  | not (isOperatorString new),
+    mismatchedCase (rqName q) new =
       bad "capitalization class mismatch"
   | otherwise = Right new
   where

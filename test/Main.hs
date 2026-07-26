@@ -8,11 +8,11 @@ import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.List (isPrefixOf, sort)
 import Data.Maybe (isJust)
 import System.Directory
-  ( doesDirectoryExist
-  , doesFileExist
-  , getTemporaryDirectory
-  , listDirectory
-  , removeFile
+  ( doesDirectoryExist,
+    doesFileExist,
+    getTemporaryDirectory,
+    listDirectory,
+    removeFile,
   )
 import System.Environment (lookupEnv)
 import System.Exit (ExitCode (..))
@@ -49,8 +49,8 @@ fixtureTest compileGate name = do
     cfg <- either fail pure (parseConfigFromArgs args)
     let rebased =
           cfg
-            { cfgInput = dir </> cfgInput cfg
-            , cfgSrcDirs = map (dir </>) (cfgSrcDirs cfg)
+            { cfgInput = dir </> cfgInput cfg,
+              cfgSrcDirs = map (dir </>) (cfgSrcDirs cfg)
             }
     result <- bundle rebased
     case (errCase, result) of

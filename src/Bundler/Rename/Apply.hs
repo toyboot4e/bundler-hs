@@ -3,10 +3,11 @@
 {-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
 
 module Bundler.Rename.Apply
-  ( ResolveEnv (..)
-  , mkResolveEnv
-  , applyRenames
-  ) where
+  ( ResolveEnv (..),
+    mkResolveEnv,
+    applyRenames,
+  )
+where
 
 import Bundler.Error
 import Bundler.Parse
@@ -20,10 +21,10 @@ import Data.Set (Set)
 import Data.Set qualified as Set
 import GHC.Hs
 import GHC.Types.Name.Occurrence
-  ( mkOccName
-  , mkVarOcc
-  , occNameSpace
-  , occNameString
+  ( mkOccName,
+    mkVarOcc,
+    occNameSpace,
+    occNameString,
   )
 import GHC.Types.Name.Reader (RdrName (..), mkRdrUnqual, rdrNameOcc)
 import GHC.Types.SrcLoc (GenLocated (..), unLoc)
@@ -32,31 +33,31 @@ type M = Either BundleError
 
 -- | How names written in one particular file resolve to local modules.
 data ResolveEnv = ResolveEnv
-  { reSelf :: Maybe ModuleName
-  -- ^ The module the rewritten file itself defines ('Nothing' for the
-  -- user's file, whose own names are never renamed).
-  , reQualLocal :: Map ModuleName ModuleName
-  -- ^ Written qualifier (alias or module name) -> local module.
-  , reUnqualLocal :: Map OccKey [(ModuleName, String)]
-  -- ^ Names reachable unqualified via imports of local modules -> their
-  -- planned new names (several entries = ambiguous if actually used).
-  , reQualExt :: Map ModuleName ModuleName
-  -- ^ Written qualifier -> external module; references are rewritten to
-  -- the canonical (fully-qualified) form. Only populated for library
-  -- files: the user's own imports survive verbatim.
-  , reUnqualExt :: Map OccKey ModuleName
-  -- ^ Names a library file imported from an external module via an
-  -- explicit import list; the import is dropped and uses are rewritten to
-  -- the canonical qualified form.
-  , reOpenExtImports :: [LImportDecl GhcPs]
-  -- ^ A library file's open / @hiding@ / complex-list unqualified external
-  -- imports: origins of individual names are unknowable without package
-  -- interfaces, so these are kept verbatim (GHC's scope-union semantics
-  -- make repeated imports of one module behave correctly).
-  , reExtAlias :: Map ModuleName ModuleName
-  -- ^ Canonical qualifier per external module (default: the module name
-  -- itself; overridable via @--rename-cmd@'s @extmod@ kind). Injected
-  -- after environment construction, once the set of externals is known.
+  { -- | The module the rewritten file itself defines ('Nothing' for the
+    -- user's file, whose own names are never renamed).
+    reSelf :: Maybe ModuleName,
+    -- | Written qualifier (alias or module name) -> local module.
+    reQualLocal :: Map ModuleName ModuleName,
+    -- | Names reachable unqualified via imports of local modules -> their
+    -- planned new names (several entries = ambiguous if actually used).
+    reUnqualLocal :: Map OccKey [(ModuleName, String)],
+    -- | Written qualifier -> external module; references are rewritten to
+    -- the canonical (fully-qualified) form. Only populated for library
+    -- files: the user's own imports survive verbatim.
+    reQualExt :: Map ModuleName ModuleName,
+    -- | Names a library file imported from an external module via an
+    -- explicit import list; the import is dropped and uses are rewritten to
+    -- the canonical qualified form.
+    reUnqualExt :: Map OccKey ModuleName,
+    -- | A library file's open / @hiding@ / complex-list unqualified external
+    -- imports: origins of individual names are unknowable without package
+    -- interfaces, so these are kept verbatim (GHC's scope-union semantics
+    -- make repeated imports of one module behave correctly).
+    reOpenExtImports :: [LImportDecl GhcPs],
+    -- | Canonical qualifier per external module (default: the module name
+    -- itself; overridable via @--rename-cmd@'s @extmod@ kind). Injected
+    -- after environment construction, once the set of externals is known.
+    reExtAlias :: Map ModuleName ModuleName
   }
 
 -- | Build the environment for one file from its imports of local modules.
@@ -64,29 +65,29 @@ data ResolveEnv = ResolveEnv
 -- so every local import contributes its qualifier; non-qualified imports
 -- additionally bring (a subset of) the module's exports into unqualified
 -- scope, honoring explicit and @hiding@ lists.
-mkResolveEnv
-  :: RenamePlan
-  -> Map ModuleName ModuleSymbols
-  -> Maybe ModuleName
-  -> ParsedFile
-  -> Either BundleError ResolveEnv
+mkResolveEnv ::
+  RenamePlan ->
+  Map ModuleName ModuleSymbols ->
+  Maybe ModuleName ->
+  ParsedFile ->
+  Either BundleError ResolveEnv
 mkResolveEnv plan symsOf self pf = do
   unqual <- mconcat <$> traverse (unqualsOf . unLoc) imports
   pure
     ResolveEnv
-      { reSelf = self
-      , reQualLocal =
+      { reSelf = self,
+        reQualLocal =
           Map.fromList
             [ (maybe m unLoc (ideclAs imp), m)
-            | imp <- map unLoc imports
-            , let m = unLoc (ideclName imp)
-            , m `Map.member` symsOf
-            ]
-      , reUnqualLocal = Map.unionsWith (<>) unqual
-      , reQualExt = if isLibrary then Map.fromList (concatMap (qualExtOf . unLoc) imports) else Map.empty
-      , reUnqualExt = if isLibrary then Map.fromList (concatMap (unqualExtOf . unLoc) imports) else Map.empty
-      , reOpenExtImports = if isLibrary then filter (isOpenExt . unLoc) imports else []
-      , reExtAlias = Map.empty
+            | imp <- map unLoc imports,
+              let m = unLoc (ideclName imp),
+              m `Map.member` symsOf
+            ],
+        reUnqualLocal = Map.unionsWith (<>) unqual,
+        reQualExt = if isLibrary then Map.fromList (concatMap (qualExtOf . unLoc) imports) else Map.empty,
+        reUnqualExt = if isLibrary then Map.fromList (concatMap (unqualExtOf . unLoc) imports) else Map.empty,
+        reOpenExtImports = if isLibrary then filter (isOpenExt . unLoc) imports else [],
+        reExtAlias = Map.empty
       }
   where
     imports = hsmodImports (unLoc (pfModule pf))
@@ -107,10 +108,10 @@ mkResolveEnv plan symsOf self pf = do
     -- Explicit-list unqualified externals: origins are exact, so the
     -- import is dropped and each listed name rewrites to qualified form.
     unqualExtOf imp
-      | isExternal imp
-      , NotQualified <- ideclQualified imp
-      , Just (Exactly, L _ items) <- ideclImportList imp
-      , Just keys <- traverse (simpleItemKeys . unLoc) items =
+      | isExternal imp,
+        NotQualified <- ideclQualified imp,
+        Just (Exactly, L _ items) <- ideclImportList imp,
+        Just keys <- traverse (simpleItemKeys . unLoc) items =
           [(key, unLoc (ideclName imp)) | key <- concat keys]
       | otherwise = []
 
@@ -133,14 +134,14 @@ mkResolveEnv plan symsOf self pf = do
 
     unqualsOf :: ImportDecl GhcPs -> M [Map OccKey [(ModuleName, String)]]
     unqualsOf imp
-      | NotQualified <- ideclQualified imp
-      , Just syms <- Map.lookup m symsOf = do
+      | NotQualified <- ideclQualified imp,
+        Just syms <- Map.lookup m symsOf = do
           keys <- visibleKeys syms
           pure
             [ Map.fromList
                 [ (key, [(m, new)])
-                | key <- Set.toList keys
-                , Just new <- [lookupPlanned key]
+                | key <- Set.toList keys,
+                  Just new <- [lookupPlanned key]
                 ]
             ]
       | otherwise = pure []
@@ -187,17 +188,17 @@ type Shadow = Set OccKey
 -- construct that introduces binders. Binders scope over sibling subtrees
 -- (e.g. pattern binders over the equation body), which is why this cannot
 -- be a plain @everywhereM@.
-applyRenames
-  :: RenamePlan
-  -> Map ModuleName ModuleSymbols
-  -> ResolveEnv
-  -> [LHsDecl GhcPs]
-  -> Either BundleError [LHsDecl GhcPs]
+applyRenames ::
+  RenamePlan ->
+  Map ModuleName ModuleSymbols ->
+  ResolveEnv ->
+  [LHsDecl GhcPs] ->
+  Either BundleError [LHsDecl GhcPs]
 applyRenames plan symsOf env decls = do
   expanded <- traverse (expandWildcards plan symsOf env) decls
   traverse (go Set.empty) expanded
   where
-    go :: Data a => Shadow -> a -> M a
+    go :: (Data a) => Shadow -> a -> M a
     go sc =
       gen
         `extM` (rdrCase sc)
@@ -207,7 +208,7 @@ applyRenames plan symsOf env decls = do
         `extM` (bindCase sc)
         `extM` (instCase sc)
       where
-        gen :: Data d => d -> M d
+        gen :: (Data d) => d -> M d
         gen = gmapM (go sc)
 
     binders :: (CollectFlag GhcPs -> a -> [IdP GhcPs]) -> a -> Shadow
@@ -221,8 +222,8 @@ applyRenames plan symsOf env decls = do
     rdrCase sc rdr = case rdr of
       Unqual occ
         | occKeyOf rdr `Set.member` sc -> Right rdr
-        | Just self <- reSelf env
-        , Just new <- lookupPlan self (occKeyOf rdr) ->
+        | Just self <- reSelf env,
+          Just new <- lookupPlan self (occKeyOf rdr) ->
             Right (unqual occ new)
         | otherwise -> case Map.lookup (occKeyOf rdr) (reUnqualLocal env) of
             Nothing -> case Map.lookup (occKeyOf rdr) (reUnqualExt env) of
@@ -328,8 +329,8 @@ applyRenames plan symsOf env decls = do
               zipWith
                 fixOne
                 (map bindName (cid_binds inst))
-                (cid_binds inst')
-          , cid_sigs =
+                (cid_binds inst'),
+            cid_sigs =
               zipWith
                 (fixSigNames methodName)
                 (cid_sigs inst)
@@ -355,8 +356,8 @@ applyRenames plan symsOf env decls = do
     setMethodName name b = case b of
       FunBind {fun_id = fid, fun_matches = mg} ->
         b
-          { fun_id = fmap retarget fid
-          , fun_matches =
+          { fun_id = fmap retarget fid,
+            fun_matches =
               mg {mg_alts = fmap (map (fmap fixMatch)) (mg_alts mg)}
           }
       _ -> b
@@ -415,9 +416,9 @@ resolveRdrModule :: RenamePlan -> ResolveEnv -> RdrName -> Maybe ModuleName
 resolveRdrModule plan env rdr = case rdr of
   Qual q _ -> Map.lookup q (reQualLocal env)
   Unqual occ
-    | Just self <- reSelf env
-    , Just p <- Map.lookup self (rpByModule plan)
-    , (nsKeyOf occ, occNameString occ) `Map.member` p ->
+    | Just self <- reSelf env,
+      Just p <- Map.lookup self (rpByModule plan),
+      (nsKeyOf occ, occNameString occ) `Map.member` p ->
         Just self
     | otherwise ->
         case Map.lookup (nsKeyOf occ, occNameString occ) (reUnqualLocal env) of
@@ -431,12 +432,12 @@ resolveRdrModule plan env rdr = case rdr of
 -- renaming. The synthesized labels carry their final (renamed) names; the
 -- RHS variables keep the old field names, which is exactly what the
 -- wildcard bound or referenced.
-expandWildcards
-  :: RenamePlan
-  -> Map ModuleName ModuleSymbols
-  -> ResolveEnv
-  -> LHsDecl GhcPs
-  -> Either BundleError (LHsDecl GhcPs)
+expandWildcards ::
+  RenamePlan ->
+  Map ModuleName ModuleSymbols ->
+  ResolveEnv ->
+  LHsDecl GhcPs ->
+  Either BundleError (LHsDecl GhcPs)
 expandWildcards plan symsOf env =
   everywhereM (mkM patCase `extM` exprCase `extM` punPatCase `extM` punExprCase)
   where
@@ -445,26 +446,26 @@ expandWildcards plan symsOf env =
     -- the parser does not materialize a real pun RHS (so shadow tracking
     -- would miss the binder). The synthesized label carries its final
     -- name; the RHS keeps the old one.
-    punPatCase
-      :: HsFieldBind (LFieldOcc GhcPs) (LPat GhcPs)
-      -> Either BundleError (HsFieldBind (LFieldOcc GhcPs) (LPat GhcPs))
+    punPatCase ::
+      HsFieldBind (LFieldOcc GhcPs) (LPat GhcPs) ->
+      Either BundleError (HsFieldBind (LFieldOcc GhcPs) (LPat GhcPs))
     punPatCase = punCase varPatRhs
 
-    punExprCase
-      :: HsFieldBind (LFieldOcc GhcPs) (LHsExpr GhcPs)
-      -> Either BundleError (HsFieldBind (LFieldOcc GhcPs) (LHsExpr GhcPs))
+    punExprCase ::
+      HsFieldBind (LFieldOcc GhcPs) (LHsExpr GhcPs) ->
+      Either BundleError (HsFieldBind (LFieldOcc GhcPs) (LHsExpr GhcPs))
     punExprCase = punCase varExprRhs
 
-    punCase
-      :: (String -> arg)
-      -> HsFieldBind (LFieldOcc GhcPs) arg
-      -> Either BundleError (HsFieldBind (LFieldOcc GhcPs) arg)
+    punCase ::
+      (String -> arg) ->
+      HsFieldBind (LFieldOcc GhcPs) arg ->
+      Either BundleError (HsFieldBind (LFieldOcc GhcPs) arg)
     punCase mkRhs fld
-      | hfbPun fld
-      , let rdr = unLoc (foLabel (unLoc (hfbLHS fld)))
-      , let old = occNameString (rdrNameOcc rdr)
-      , Just m <- resolveRdrModule plan env rdr
-      , Just new <- Map.lookup m (rpByModule plan) >>= Map.lookup (NsValue, old) =
+      | hfbPun fld,
+        let rdr = unLoc (foLabel (unLoc (hfbLHS fld))),
+        let old = occNameString (rdrNameOcc rdr),
+        Just m <- resolveRdrModule plan env rdr,
+        Just new <- Map.lookup m (rpByModule plan) >>= Map.lookup (NsValue, old) =
           pure
             fld
               { hfbLHS =
@@ -472,9 +473,9 @@ expandWildcards plan symsOf env =
                     ( FieldOcc
                         noExtField
                         (noLocA (mkRdrUnqual (mkOccName (occNameSpace (rdrNameOcc rdr)) new)))
-                    )
-              , hfbRHS = mkRhs old
-              , hfbPun = False
+                    ),
+                hfbRHS = mkRhs old,
+                hfbPun = False
               }
       | otherwise = pure fld
     patCase :: Pat GhcPs -> Either BundleError (Pat GhcPs)
@@ -498,18 +499,18 @@ expandWildcards plan symsOf env =
       fields <- Map.lookup (occNameString (rdrNameOcc rdr)) (msFieldsOf syms)
       pure (m, fields)
 
-    expandFlds
-      :: (String -> arg)
-      -> ModuleName
-      -> [String]
-      -> HsRecFields GhcPs arg
-      -> HsRecFields GhcPs arg
+    expandFlds ::
+      (String -> arg) ->
+      ModuleName ->
+      [String] ->
+      HsRecFields GhcPs arg ->
+      HsRecFields GhcPs arg
     expandFlds mkRhs m fields hrf = case rec_dotdot hrf of
       Nothing -> hrf
       Just _ ->
         hrf
-          { rec_flds = rec_flds hrf <> map synth missing
-          , rec_dotdot = Nothing
+          { rec_flds = rec_flds hrf <> map synth missing,
+            rec_dotdot = Nothing
           }
       where
         explicit =

@@ -1,23 +1,24 @@
 module Bundler
-  ( bundle
-  ) where
+  ( bundle,
+  )
+where
 
 import Bundler.Cabal
 import Bundler.Config
 import Bundler.Discovery
 import Bundler.Error
 import Bundler.Parse
-import Bundler.Render
 import Bundler.Rename.Apply
 import Bundler.Rename.Plan
 import Bundler.RenameCmd
+import Bundler.Render
 import Bundler.Symbols
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except (ExceptT (..), runExceptT)
 import Data.Containers.ListUtils (nubOrd)
 import Data.List (intercalate)
-import Data.Maybe (fromMaybe)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import GHC.Driver.Session (DynFlags)
 import GHC.Hs (hsmodDecls, hsmodImports, ideclName)
@@ -102,10 +103,10 @@ bundle cfg = runExceptT $ do
         alias <-
           ExceptT . liftIO . queryRenamer renamer $
             RenameQuery
-              { rqKind = "extmod"
-              , rqModule = moduleNameString m
-              , rqSuffix = filter (/= '.') (moduleNameString m)
-              , rqName = moduleNameString m
+              { rqKind = "extmod",
+                rqModule = moduleNameString m,
+                rqSuffix = filter (/= '.') (moduleNameString m),
+                rqName = moduleNameString m
               }
         pure (m, mkModuleName alias)
 
@@ -118,31 +119,31 @@ declsOf pf = hsmodDecls (unLoc (pfModule pf))
 -- union, user module header, merged imports, then the (renamed)
 -- declarations of every local module in dependency order and finally the
 -- user's own.
-assemble
-  :: ProjectDefaults
-  -> [ProjectDefaults]
-  -> ParsedFile
-  -> [String]
-  -> [GHC.Hs.LHsDecl GHC.Hs.GhcPs]
-  -> [(LocalModule, [GHC.Hs.LHsDecl GHC.Hs.GhcPs])]
-  -> String
+assemble ::
+  ProjectDefaults ->
+  [ProjectDefaults] ->
+  ParsedFile ->
+  [String] ->
+  [GHC.Hs.LHsDecl GHC.Hs.GhcPs] ->
+  [(LocalModule, [GHC.Hs.LHsDecl GHC.Hs.GhcPs])] ->
+  String
 assemble userDefaults libDefaults userFile extImportLines userDecls locals =
   intercalate "\n\n" (filter (not . null) chunks) <> "\n"
   where
     chunks =
-      [ intercalate "\n" pragmas
-      , fromMaybe "" (renderModuleHeader (pfModule userFile))
-      , intercalate "\n" imports
+      [ intercalate "\n" pragmas,
+        fromMaybe "" (renderModuleHeader (pfModule userFile)),
+        intercalate "\n" imports
       ]
         <> map localChunk locals
         <> [intercalate "\n\n" (map renderDecl userDecls)]
 
     pragmas =
       nubOrd . concat $
-        [ pdPragmas userDefaults
-        , pfPragmas userFile
-        , concatMap pdPragmas libDefaults
-        , concatMap (pfPragmas . lmParsed . fst) locals
+        [ pdPragmas userDefaults,
+          pfPragmas userFile,
+          concatMap pdPragmas libDefaults,
+          concatMap (pfPragmas . lmParsed . fst) locals
         ]
 
     localNames = Set.fromList (map (lmName . fst) locals)
@@ -150,8 +151,8 @@ assemble userDefaults libDefaults userFile extImportLines userDecls locals =
     -- library imports arrive pre-digested as canonical/kept lines.
     userImports =
       [ renderImport imp
-      | imp <- hsmodImports (unLoc (pfModule userFile))
-      , unLoc (ideclName (unLoc imp)) `Set.notMember` localNames
+      | imp <- hsmodImports (unLoc (pfModule userFile)),
+        unLoc (ideclName (unLoc imp)) `Set.notMember` localNames
       ]
     imports = nubOrd (userImports <> extImportLines)
 

@@ -1,8 +1,9 @@
 module Bundler.Discovery
-  ( LocalModule (..)
-  , discoverLocalModules
-  , importedModules
-  ) where
+  ( LocalModule (..),
+    discoverLocalModules,
+    importedModules,
+  )
+where
 
 import Bundler.Error
 import Bundler.Parse
@@ -20,10 +21,10 @@ import System.IO (readFile')
 
 -- | One local library module pulled into the bundle.
 data LocalModule = LocalModule
-  { lmName :: ModuleName
-  , lmParsed :: ParsedFile
-  , lmDeps :: [ModuleName]
-  -- ^ Its imports that are themselves local modules.
+  { lmName :: ModuleName,
+    lmParsed :: ParsedFile,
+    -- | Its imports that are themselves local modules.
+    lmDeps :: [ModuleName]
   }
 
 -- | All modules a parsed file imports, local or not.
@@ -48,10 +49,10 @@ lookupLocal srcDirs m = do
 -- returning modules in dependency order (dependencies before dependents).
 -- Each local file is parsed with the 'DynFlags' of the @--src@ dir it was
 -- found under (carrying that project's cabal defaults).
-discoverLocalModules
-  :: [(FilePath, DynFlags)]
-  -> ParsedFile
-  -> IO (Either BundleError [LocalModule])
+discoverLocalModules ::
+  [(FilePath, DynFlags)] ->
+  ParsedFile ->
+  IO (Either BundleError [LocalModule])
 discoverLocalModules srcDirs userFile = do
   result <- go Map.empty (importedModules userFile)
   pure (result >>= topoSort)

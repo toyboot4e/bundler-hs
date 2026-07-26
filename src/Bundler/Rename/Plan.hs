@@ -1,8 +1,9 @@
 module Bundler.Rename.Plan
-  ( RenamePlan (..)
-  , mkRenamePlan
-  , planSuffixFor
-  ) where
+  ( RenamePlan (..),
+    mkRenamePlan,
+    planSuffixFor,
+  )
+where
 
 import Bundler.Discovery
 import Bundler.Error
@@ -42,13 +43,13 @@ planSuffixFor userFile m =
 -- | Build the plan (default rule, or one @--rename-cmd@ query per name) and
 -- validate that the resulting flat namespace has no collisions, including
 -- against the user's own top-level names.
-mkRenamePlan
-  :: Maybe Renamer
-  -> ParsedFile
-  -> ModuleSymbols
-  -- ^ The user file's own symbols (unrenamed, but they occupy names).
-  -> [(LocalModule, ModuleSymbols)]
-  -> IO (Either BundleError RenamePlan)
+mkRenamePlan ::
+  Maybe Renamer ->
+  ParsedFile ->
+  -- | The user file's own symbols (unrenamed, but they occupy names).
+  ModuleSymbols ->
+  [(LocalModule, ModuleSymbols)] ->
+  IO (Either BundleError RenamePlan)
 mkRenamePlan mrenamer userFile userSyms locals = runExceptT $ do
   perModule <- traverse planFor locals
   let plan = RenamePlan (Map.fromList perModule)
@@ -70,10 +71,10 @@ mkRenamePlan mrenamer userFile userSyms locals = runExceptT $ do
           queryRenamer
             renamer
             RenameQuery
-              { rqKind = kindString old kind
-              , rqModule = moduleNameString (lmName lm)
-              , rqSuffix = suffix
-              , rqName = old
+              { rqKind = kindString old kind,
+                rqModule = moduleNameString (lmName lm),
+                rqSuffix = suffix,
+                rqName = old
               }
 
     -- Operators cannot take an alphanumeric suffix; by default they keep
@@ -96,10 +97,10 @@ mkRenamePlan mrenamer userFile userSyms locals = runExceptT $ do
 
 -- | Flat-namespace collision check over every renamed name (per namespace
 -- bucket) plus the user file's own top-level names.
-validatePlan
-  :: ModuleSymbols
-  -> [(ModuleName, Map OccKey String)]
-  -> Either BundleError ()
+validatePlan ::
+  ModuleSymbols ->
+  [(ModuleName, Map OccKey String)] ->
+  Either BundleError ()
 validatePlan userSyms perModule =
   case Map.toAscList collisions of
     [] -> Right ()
@@ -109,8 +110,8 @@ validatePlan userSyms perModule =
     collisions =
       Map.filter (\os -> length os > 1) . Map.fromListWith (<>) $
         [ ((ns, new), [moduleNameString m])
-        | (m, entries) <- perModule
-        , ((ns, _), new) <- Map.toList entries
+        | (m, entries) <- perModule,
+          ((ns, _), new) <- Map.toList entries
         ]
           <> [ ((ns, name), ["<user file>"])
              | (ns, name) <- Map.keys (msAll userSyms)

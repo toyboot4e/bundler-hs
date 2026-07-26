@@ -1,21 +1,22 @@
 module Bundler.Config
-  ( Config (..)
-  , configParserInfo
-  , parseConfigFromArgs
-  ) where
+  ( Config (..),
+    configParserInfo,
+    parseConfigFromArgs,
+  )
+where
 
 import Options.Applicative
 
 data Config = Config
-  { cfgInput :: FilePath
-  -- ^ The user's source file to bundle.
-  , cfgSrcDirs :: [FilePath]
-  -- ^ Roots under which local library modules are looked up
-  -- (@--src DIR@, repeatable). An import @A.B.C@ is expanded iff
-  -- @DIR/A/B/C.hs@ exists under one of these.
-  , cfgRenameCmd :: Maybe String
-  -- ^ Optional external command implementing the rename protocol
-  -- (@--rename-cmd CMD@).
+  { -- | The user's source file to bundle.
+    cfgInput :: FilePath,
+    -- | Roots under which local library modules are looked up
+    -- (@--src DIR@, repeatable). An import @A.B.C@ is expanded iff
+    -- @DIR/A/B/C.hs@ exists under one of these.
+    cfgSrcDirs :: [FilePath],
+    -- | Optional external command implementing the rename protocol
+    -- (@--rename-cmd CMD@).
+    cfgRenameCmd :: Maybe String
   }
   deriving (Show)
 
