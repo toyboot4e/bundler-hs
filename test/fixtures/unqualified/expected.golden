@@ -7,29 +7,23 @@ module Main (
 data PairUtil = MkPairUtil {leftUtil :: Int, rightUtil :: Int}
 
 incUtil :: Int -> Int
-
 incUtil = (+ 1)
 
 clampUtil :: Int -> Int -> Int -> Int
-
 clampUtil lo hi = max lo . min hi
 
 privateUtil :: Int
-
 privateUtil = 0
 
 -- ### Extra
 
 twiceExtra :: Int -> Int
-
 twiceExtra x = x * 2
 
 unusedExtra :: Int
-
 unusedExtra = 99
 
 main :: IO ()
-
 main
   = do print (incUtil 41)
        print (clampUtil 0 10 99)

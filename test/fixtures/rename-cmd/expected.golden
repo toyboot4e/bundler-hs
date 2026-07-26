@@ -7,11 +7,9 @@ import qualified Data.Map.Strict as DataMapStrict
 -- ### OpsB
 
 (<.+>) :: Int -> Int -> Int
-
 (<.+>) = (*)
 
 g_B :: Int -> Int
-
 g_B x = x <.+> 10
 
 -- ### OpsA
@@ -19,11 +17,9 @@ g_B x = x <.+> 10
 infixl 6 <+.>
 
 (<+.>) :: Int -> Int -> Int
-
 (<+.>) = (+)
 
 f_A :: Int -> Int
-
 f_A x = x <+.> 10
 
 -- ### Counter
@@ -33,12 +29,10 @@ data Tally_C
   deriving (Show)
 
 count_C :: String -> Tally_C
-
 count_C s
   = let m = DataMapStrict.fromListWith (+) [(c, 1 :: Int) | c <- s] in Tally_C {total_C = length s, distinct_C = DataMapStrict.size m}
 
 main :: IO ()
-
 main
   = do print (f_A 1)
        print (g_B 2)

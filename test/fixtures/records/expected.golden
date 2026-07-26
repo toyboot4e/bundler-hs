@@ -10,23 +10,18 @@ module Main (
 data PointRec = PointRec {pxRec :: Int, pyRec :: Int}
 
 normRec :: PointRec -> Int
-
 normRec PointRec {pyRec = py, pxRec = px} = px * px + py * py
 
 shift :: PointRec -> PointRec
-
 shift p = p {pxRec = pxRec p + 1}
 
 viaPuns :: PointRec -> Int
-
 viaPuns PointRec {pxRec = px} = px
 
 viaWildcards :: PointRec -> Int
-
 viaWildcards PointRec {pyRec = py, pxRec = px} = px + py
 
 build :: Int -> PointRec
-
 build n
   = let
       px = n
@@ -34,7 +29,6 @@ build n
     in PointRec {pyRec = py, pxRec = px}
 
 main :: IO ()
-
 main
   = do let p = PointRec {pxRec = 3, pyRec = 4}
        print (normRec p)

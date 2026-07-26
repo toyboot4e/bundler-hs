@@ -7,9 +7,7 @@ module Main (
 -- ### Flagged
 
 valueFlagged :: Int
-
 valueFlagged = 2
 
 main :: IO ()
-
 main = print valueFlagged

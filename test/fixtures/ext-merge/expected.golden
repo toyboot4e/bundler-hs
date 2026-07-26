@@ -12,7 +12,6 @@ import Data.Char
 -- ### CountB
 
 rankedCountB :: [Int] -> [(Int, String)]
-
 rankedCountB xs
   = [(k, map toUpper v) |
        (k, v) <- Data.Map.Strict.toList (Data.Map.Strict.fromList (zip (Data.List.sortBy (Data.Ord.comparing negate) xs) ["a", "b", "c"]))]
@@ -20,11 +19,9 @@ rankedCountB xs
 -- ### CountA
 
 countUpCountA :: [Int] -> [(Int, Int)]
-
 countUpCountA xs = Data.Map.Strict.toList (Data.Map.Strict.fromListWith (+) [(x, 1) | x <- xs])
 
 main :: IO ()
-
 main
   = do print (countUpCountA [1, 2, 2, 3])
        print (rankedCountB [3, 1, 2])

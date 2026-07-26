@@ -96,7 +96,7 @@ parseUserFile :: DynFlags -> FilePath -> String -> IO (Either BundleError Parsed
 parseUserFile = parseWith CppPreserve
 
 parseWith :: CppHandling -> DynFlags -> FilePath -> String -> IO (Either BundleError ParsedFile)
-parseWith cppMode dflags path src = do
+parseWith cppMode dflags path rawSrc = do
   mflags <- parsePragmasIntoDynFlags dflags ([], []) path src
   case mflags of
     Left err ->
@@ -117,6 +117,8 @@ parseWith cppMode dflags path src = do
               _ -> evaluateCpp flags
           | otherwise -> pure (Left (ParseError path (renderPsErrors st)))
   where
+    src = normalizeNewlines rawSrc
+
     evaluateCpp flags = do
       preprocessed <- try @SomeException (runCpphs cpphsOptions path src)
       pure $ case preprocessed of
@@ -137,6 +139,14 @@ parseWith cppMode dflags path src = do
           pfPragmas = extractHeaderPragmas src,
           pfDirectives = directives
         }
+
+-- | CRLF-tolerant reading: the bundle is always emitted with plain LF, and
+-- stray carriage returns would otherwise survive inside re-emitted pragma
+-- and directive lines.
+normalizeNewlines :: String -> String
+normalizeNewlines ('\r' : '\n' : rest) = '\n' : normalizeNewlines rest
+normalizeNewlines (c : rest) = c : normalizeNewlines rest
+normalizeNewlines [] = []
 
 -- | Replace CPP directive lines with blank ones (keeping line numbers
 -- intact) and return them tagged with their line number. 'Nothing' when the

@@ -15,11 +15,9 @@ instance PrettyP Int where
 -- ### Decoy
 
 displayDecoy :: Int -> String
-
 displayDecoy n = "<" <> Prelude.show n <> ">"
 
 showDecoy :: Int -> String
-
 showDecoy = displayDecoy
 
 data Box = Box Int
@@ -34,7 +32,6 @@ instance Show Tag where
   show (Tag n) = "#" <> displayDecoy n
 
 main :: IO ()
-
 main
   = do putStrLn (prettyP (Box 1))
        print (indentP (Box 1))

@@ -7,9 +7,7 @@ module Main (
 -- ### Iffy
 
 answerIffy :: Int
-
 answerIffy = 2
 
 main :: IO ()
-
 main = print answerIffy

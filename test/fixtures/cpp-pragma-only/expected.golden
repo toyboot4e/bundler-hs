@@ -7,9 +7,7 @@ module Main (
 -- ### Plain
 
 answerPlain :: Int
-
 answerPlain = 41
 
 main :: IO ()
-
 main = print (answerPlain + 1)

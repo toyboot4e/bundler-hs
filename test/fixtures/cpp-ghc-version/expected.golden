@@ -7,9 +7,7 @@ module Main (
 -- ### Ver
 
 specVer :: String
-
 specVer = "modern"
 
 main :: IO ()
-
 main = print specVer

@@ -16,13 +16,15 @@ import Bundler.Symbols
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except (ExceptT (..), runExceptT)
 import Data.Containers.ListUtils (nubOrd)
-import Data.List (intercalate)
+import Data.List (intercalate, intersect)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
 import GHC.Driver.Session (DynFlags)
 import GHC.Hs (hsmodDecls, hsmodImports, ideclName)
 import GHC.Hs qualified
+import GHC.Types.Name.Occurrence (occNameString)
+import GHC.Types.Name.Reader (rdrNameOcc)
 import GHC.Types.SrcLoc (unLoc)
 import Language.Haskell.Syntax.Module.Name (mkModuleName, moduleNameString)
 import System.FilePath (takeDirectory)
@@ -139,13 +141,21 @@ assemble userDefaults libDefaults userFile extImportLines userDecls locals =
         <> [intercalate "\n\n" userPieces]
 
     -- The user's declarations, with any preserved CPP directive lines
-    -- re-emitted at the declaration boundaries they came from.
-    userPieces =
-      concat
-        [ directivesAt i <> [renderDecl d]
-        | (i, d) <- zip [0 ..] userDecls
-        ]
-        <> directivesAt (length userDecls)
+    -- re-emitted at the declaration boundaries they came from. A signature
+    -- merges with its binding unless directives separate them.
+    userPieces = go (0 :: Int) userDecls
+      where
+        go i [] = dirPieces i
+        go i (d : ds) =
+          dirPieces i <> case ds of
+            d2 : rest
+              | signatureFor d d2,
+                null (directivesAt (i + 1)) ->
+                  (renderDecl d <> "\n" <> renderDecl d2) : go (i + 2) rest
+            _ -> renderDecl d : go (i + 1) ds
+        dirPieces i = case directivesAt i of
+          [] -> []
+          ts -> [intercalate "\n" ts]
     directivesAt i = [text | (j, text) <- pfDirectives userFile, j == i]
 
     pragmas =
@@ -169,7 +179,36 @@ assemble userDefaults libDefaults userFile extImportLines userDecls locals =
     localChunk (lm, decls) =
       intercalate "\n\n" $
         ("-- ### " <> moduleNameString (lmName lm))
-          : map renderDecl decls
+          : mergeSigs decls
+
+-- | Render declarations, joining each type/pattern-synonym signature with
+-- the binding that follows it (GHC parses them as separate declarations,
+-- but a blank line between @f :: ...@ and @f = ...@ reads as noise).
+mergeSigs :: [GHC.Hs.LHsDecl GHC.Hs.GhcPs] -> [String]
+mergeSigs (d : d2 : rest)
+  | signatureFor d d2 = (renderDecl d <> "\n" <> renderDecl d2) : mergeSigs rest
+mergeSigs (d : rest) = renderDecl d : mergeSigs rest
+mergeSigs [] = []
+
+-- | Does the first declaration declare a signature for something the second
+-- one binds?
+signatureFor :: GHC.Hs.LHsDecl GHC.Hs.GhcPs -> GHC.Hs.LHsDecl GHC.Hs.GhcPs -> Bool
+signatureFor sig bind = case (unLoc sig, unLoc bind) of
+  (GHC.Hs.SigD _ s, GHC.Hs.ValD _ b) ->
+    not (null (sigNames s `intersect` bindNames b))
+  _ -> False
+  where
+    sigNames s = case s of
+      GHC.Hs.TypeSig _ ns _ -> map (nameOf . unLoc) ns
+      GHC.Hs.PatSynSig _ ns _ -> map (nameOf . unLoc) ns
+      _ -> []
+    bindNames b = case b of
+      GHC.Hs.FunBind {GHC.Hs.fun_id = n} -> [nameOf (unLoc n)]
+      GHC.Hs.PatBind {GHC.Hs.pat_lhs = p} ->
+        map nameOf (GHC.Hs.collectPatBinders GHC.Hs.CollNoDictBinders p)
+      GHC.Hs.PatSynBind _ (GHC.Hs.PSB {GHC.Hs.psb_id = n}) -> [nameOf (unLoc n)]
+      _ -> []
+    nameOf = occNameString . rdrNameOcc
 
 -- | Re-parse our own output before emitting it: the pretty-printer is not
 -- guaranteed to produce re-parseable code in every corner case, and a bundle
