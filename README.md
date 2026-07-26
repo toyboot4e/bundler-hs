@@ -78,10 +78,14 @@ compile, which the bundler cannot prevent.
   does not parse never reaches stdout.
 - Comments and formatting are not preserved (output is pretty-printed from
   the renamed AST).
-- Not supported (hard error): CPP `#` directives (merely enabling the CPP
-  extension is fine — the file just has to parse without preprocessing),
-  module re-exports (`module X` in export lists), import cycles between
-  local modules, Template Haskell splices in library modules.
+- CPP: in library modules, `#` directives are evaluated at bundle time
+  (cpphs, with `__GLASGOW_HASKELL__` defined and nothing else). In the
+  user's file, directives sitting between top-level declarations are
+  preserved verbatim (all branches renamed); directives cutting through
+  the middle of a declaration fall back to evaluation.
+- Not supported (hard error): module re-exports (`module X` in export
+  lists), import cycles between local modules, Template Haskell splices in
+  library modules.
 - Open/`hiding` imports of external modules in library code are kept
   verbatim (a note is printed to stderr); in rare cases they can make names
   ambiguous in the bundle.

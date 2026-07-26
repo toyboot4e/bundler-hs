@@ -38,7 +38,7 @@ bundle cfg = runExceptT $ do
   userDefaults <- ExceptT (findProjectDefaults (takeDirectory (cfgInput cfg)))
   userFlags <- ExceptT (applyPragmaLines baseDynFlags (pdPragmas userDefaults))
   src <- liftIO (readFile' (cfgInput cfg))
-  userFile <- ExceptT (parseHaskellFile userFlags (cfgInput cfg) src)
+  userFile <- ExceptT (parseUserFile userFlags (cfgInput cfg) src)
   srcDirs <- traverse dirDefaults (cfgSrcDirs cfg)
   locals <- ExceptT (discoverLocalModules [(d, flags) | (d, flags, _) <- srcDirs] userFile)
   let withSyms = [(lm, moduleSymbols (lmParsed lm)) | lm <- locals]
@@ -136,7 +136,17 @@ assemble userDefaults libDefaults userFile extImportLines userDecls locals =
         intercalate "\n" imports
       ]
         <> map localChunk locals
-        <> [intercalate "\n\n" (map renderDecl userDecls)]
+        <> [intercalate "\n\n" userPieces]
+
+    -- The user's declarations, with any preserved CPP directive lines
+    -- re-emitted at the declaration boundaries they came from.
+    userPieces =
+      concat
+        [ directivesAt i <> [renderDecl d]
+        | (i, d) <- zip [0 ..] userDecls
+        ]
+        <> directivesAt (length userDecls)
+    directivesAt i = [text | (j, text) <- pfDirectives userFile, j == i]
 
     pragmas =
       nubOrd . concat $
