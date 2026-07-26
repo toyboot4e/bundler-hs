@@ -1,0 +1,11 @@
+{-# LANGUAGE CPP #-}
+
+module Main (
+        main
+    ) where
+
+main :: IO ()
+
+main
+  = do n <- readLn :: IO Int
+       print (n * 2)

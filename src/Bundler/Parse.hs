@@ -28,6 +28,7 @@ import GHC.Types.Error
 import GHC.Types.SrcLoc
   ( Located,
     SrcSpan (..),
+    srcSpanEndLine,
     srcSpanStartLine,
     unLoc,
   )
@@ -110,8 +111,9 @@ parseWith cppMode dflags path src = do
           | xopt LangExt.Cpp flags -> case cppMode of
               CppPreserve
                 | Just (stripped, directives) <- stripDirectives src,
-                  POk _ modl <- parseFile path flags stripped ->
-                    pure (Right (mkParsed flags modl (anchorDirectives modl directives)))
+                  POk _ modl <- parseFile path flags stripped,
+                  Just anchored <- anchorDirectives modl directives ->
+                    pure (Right (mkParsed flags modl anchored))
               _ -> evaluateCpp flags
           | otherwise -> pure (Left (ParseError path (renderPsErrors st)))
   where
@@ -174,14 +176,23 @@ stripDirectives src
 
 -- | Attach each directive to the index of the first top-level declaration
 -- starting after it (so it is re-emitted just before that declaration).
-anchorDirectives :: Located (HsModule GhcPs) -> [(Int, String)] -> [(Int, String)]
-anchorDirectives modl directives =
-  [ (length (filter (< line) declStartLines), text)
-  | (line, text) <- directives
-  ]
+-- 'Nothing' when any directive falls *inside* a declaration's span: naively
+-- blanking such a line changes meaning (e.g. an @#ifdef DEBUG@ statement in
+-- a do-block would become unconditional), so the caller must evaluate the
+-- CPP instead of preserving it.
+anchorDirectives :: Located (HsModule GhcPs) -> [(Int, String)] -> Maybe [(Int, String)]
+anchorDirectives modl directives
+  | all betweenDecls directives =
+      Just
+        [ (length (filter ((< line) . fst) declSpans), text)
+        | (line, text) <- directives
+        ]
+  | otherwise = Nothing
   where
-    declStartLines =
-      [ srcSpanStartLine real
+    betweenDecls (line, _) =
+      all (\(start, end) -> line < start || line > end) declSpans
+    declSpans =
+      [ (srcSpanStartLine real, srcSpanEndLine real)
       | decl <- hsmodDecls (unLoc modl),
         RealSrcSpan real _ <- [getLocA decl]
       ]
