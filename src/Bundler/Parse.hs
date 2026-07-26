@@ -63,9 +63,6 @@ parseHaskellFile dflags path src = do
   case mflags of
     Left err ->
       pure (Left (ParseError path err))
-    Right flags
-      | xopt LangExt.Cpp flags ->
-          pure (Left (CppNotSupported path))
     Right flags ->
       pure $ case parseFile path flags src of
         POk _ modl ->
@@ -76,7 +73,13 @@ parseHaskellFile dflags path src = do
                 pfDynFlags = flags,
                 pfPragmas = extractHeaderPragmas src
               }
-        PFailed st -> Left (ParseError path (renderPsErrors st))
+        -- A file that merely enables CPP but contains no # directives is
+        -- ordinary Haskell and bundles fine; the parser only chokes on
+        -- actual directives, which ghc-lib-parser cannot preprocess. Name
+        -- the real culprit in that case.
+        PFailed st
+          | xopt LangExt.Cpp flags -> Left (CppNotSupported path)
+          | otherwise -> Left (ParseError path (renderPsErrors st))
 
 renderPsErrors :: PState -> String
 renderPsErrors st =
