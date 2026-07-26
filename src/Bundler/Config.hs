@@ -47,7 +47,7 @@ configParserInfo =
     (configParser <**> helper)
     ( fullDesc
         <> progDesc "Expand local library imports into one self-contained Haskell file on stdout"
-        <> header "hs-bundle - Haskell source bundler for competitive programming"
+        <> header "bundler-hs - Haskell source bundler for competitive programming"
     )
 
 -- | Parse a raw argument list (used by the test harness; the executable
@@ -56,5 +56,5 @@ parseConfigFromArgs :: [String] -> Either String Config
 parseConfigFromArgs args =
   case execParserPure defaultPrefs configParserInfo args of
     Success cfg -> Right cfg
-    Failure failure -> Left (fst (renderFailure failure "hs-bundle"))
+    Failure failure -> Left (fst (renderFailure failure "bundler-hs"))
     CompletionInvoked _ -> Left "unexpected completion invocation"

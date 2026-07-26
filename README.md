@@ -13,7 +13,7 @@ so it parses whatever recent GHC parses (GHC2021/GHC2024, `LambdaCase`, …).
 ## Usage
 
 ```console
-$ hs-bundle Main.hs --src path/to/your/library > submission.hs
+$ bundler-hs Main.hs --src path/to/your/library > submission.hs
 ```
 
 - `--src DIR` (repeatable): roots under which local modules are looked up.

@@ -49,7 +49,7 @@ library
       , typed-process
       , uniplate
 
-executable hs-bundle
+executable bundler-hs
     import:           warnings
     hs-source-dirs:   app
     main-is:          Main.hs

@@ -22,7 +22,7 @@ accept:
 
 # Bundle a file: just run Main.hs --src lib
 run *ARGS:
-    cabal run -v0 hs-bundle -- {{ARGS}}
+    cabal run -v0 bundler-hs -- {{ARGS}}
 
 # GHCi with the library in scope
 repl:
