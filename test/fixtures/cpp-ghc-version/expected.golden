@@ -1,0 +1,15 @@
+{-# LANGUAGE CPP #-}
+
+module Main (
+        main
+    ) where
+
+-- ### Ver
+
+specVer :: String
+
+specVer = "modern"
+
+main :: IO ()
+
+main = print specVer
