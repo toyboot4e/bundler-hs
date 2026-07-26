@@ -12,6 +12,10 @@ build:
 test:
     cabal test --test-show-details=direct
 
+# Golden suite plus a ghc -fno-code compile check of every bundle
+test-compile:
+    HSB_TEST_COMPILE=1 cabal test --test-show-details=direct
+
 # Re-record golden files after an intentional output change
 accept:
     cabal test --test-show-details=direct --test-options=--accept

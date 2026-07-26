@@ -7,13 +7,14 @@ module Bundler.Rename.Plan
 import Bundler.Discovery
 import Bundler.Error
 import Bundler.Parse
+import Bundler.RenameCmd
 import Bundler.Symbols
-import Data.Char (isAlphaNum)
+import Control.Monad.Trans.Except (ExceptT (..), runExceptT)
 import Data.List (sort)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (listToMaybe, mapMaybe)
-import GHC.Hs (ideclAs, ideclName, hsmodImports)
+import GHC.Hs (hsmodImports, ideclAs, ideclName)
 import GHC.Types.SrcLoc (unLoc)
 import Language.Haskell.Syntax.Module.Name (ModuleName, moduleNameString)
 
@@ -26,7 +27,7 @@ newtype RenamePlan = RenamePlan
 
 -- | The suffix appended to every name of a module: the @as@ alias from the
 -- user's own import of it when present, otherwise the dot-stripped module
--- name. (@--rename-cmd@ overrides this per name; wired up in M6.)
+-- name.
 planSuffixFor :: ParsedFile -> ModuleName -> String
 planSuffixFor userFile m =
   maybe (filter (/= '.') (moduleNameString m)) moduleNameString userAlias
@@ -38,46 +39,78 @@ planSuffixFor userFile m =
       | unLoc (ideclName imp) == m = fmap unLoc (ideclAs imp)
       | otherwise = Nothing
 
--- | Build the default plan and validate that the resulting flat namespace
--- has no collisions (including against the user's own top-level names).
+-- | Build the plan (default rule, or one @--rename-cmd@ query per name) and
+-- validate that the resulting flat namespace has no collisions, including
+-- against the user's own top-level names.
 mkRenamePlan
-  :: ParsedFile
+  :: Maybe Renamer
+  -> ParsedFile
   -> ModuleSymbols
   -- ^ The user file's own symbols (unrenamed, but they occupy names).
   -> [(LocalModule, ModuleSymbols)]
-  -> Either BundleError RenamePlan
-mkRenamePlan userFile userSyms locals = do
-  validate
+  -> IO (Either BundleError RenamePlan)
+mkRenamePlan mrenamer userFile userSyms locals = runExceptT $ do
+  perModule <- traverse planFor locals
+  let plan = RenamePlan (Map.fromList perModule)
+  ExceptT (pure (validatePlan userSyms perModule))
   pure plan
   where
-    plan =
-      RenamePlan . Map.fromList $
-        [ (lmName lm, Map.mapWithKey (newName (suffix lm)) (msAll syms))
-        | (lm, syms) <- locals
-        ]
-    suffix lm = planSuffixFor userFile (lmName lm)
+    planFor (lm, syms) = do
+      let suffix = planSuffixFor userFile (lmName lm)
+      entries <-
+        traverse
+          (\(key, kind) -> (,) key <$> newName lm suffix key kind)
+          (Map.toAscList (msAll syms))
+      pure (lmName lm, Map.fromList entries)
 
-    -- Operators cannot take an alphanumeric suffix; they keep their name
-    -- (collisions caught below, resolvable via --rename-cmd once wired).
-    newName suf (_, name) _kind
-      | isOperatorName name = name
-      | otherwise = name <> suf
+    newName lm suffix (_, old) kind = case mrenamer of
+      Nothing -> pure (defaultNewName suffix old)
+      Just renamer ->
+        ExceptT $
+          queryRenamer
+            renamer
+            RenameQuery
+              { rqKind = kindString old kind
+              , rqModule = moduleNameString (lmName lm)
+              , rqSuffix = suffix
+              , rqName = old
+              }
 
-    isOperatorName = not . all (\c -> isAlphaNum c || c `elem` "_'")
+    -- Operators cannot take an alphanumeric suffix; by default they keep
+    -- their name (collisions caught by validation, resolvable via
+    -- --rename-cmd).
+    defaultNewName suffix old
+      | isOperatorString old = old
+      | otherwise = old <> suffix
 
-    -- Flat-namespace collision check: every renamed name, per namespace
-    -- bucket, plus the user file's own top-level names.
-    validate =
-      case Map.toAscList collisions of
-        [] -> Right ()
-        ((ns, name), origins) : _ ->
-          Left (NameCollision (describe ns name) (sort origins))
+    kindString old kind
+      | isOperatorString old = "op"
+      | otherwise = case kind of
+          SymField -> "field"
+          SymDataCon -> "con"
+          SymPatSyn -> "con"
+          SymTyCon -> "type"
+          SymClass -> "type"
+          SymValue -> "value"
+          SymClassMethod -> "value"
+
+-- | Flat-namespace collision check over every renamed name (per namespace
+-- bucket) plus the user file's own top-level names.
+validatePlan
+  :: ModuleSymbols
+  -> [(ModuleName, Map OccKey String)]
+  -> Either BundleError ()
+validatePlan userSyms perModule =
+  case Map.toAscList collisions of
+    [] -> Right ()
+    ((ns, name), origins) : _ ->
+      Left (NameCollision (describe ns name) (sort origins))
+  where
     collisions =
       Map.filter (\os -> length os > 1) . Map.fromListWith (<>) $
-        [ ((ns, new), [moduleNameString (lmName lm)])
-        | (lm, syms) <- locals
-        , ((ns, old), _) <- Map.toList (msAll syms)
-        , let new = if isOperatorName old then old else old <> suffix lm
+        [ ((ns, new), [moduleNameString m])
+        | (m, entries) <- perModule
+        , ((ns, _), new) <- Map.toList entries
         ]
           <> [ ((ns, name), ["<user file>"])
              | (ns, name) <- Map.keys (msAll userSyms)

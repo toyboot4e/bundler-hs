@@ -1,3 +1,7 @@
+-- The GHC AST's trees-that-grow extension constructors make record updates
+-- formally incomplete everywhere; they are unreachable at GhcPs.
+{-# OPTIONS_GHC -Wno-incomplete-record-updates #-}
+
 module Bundler.Rename.Apply
   ( ResolveEnv (..)
   , mkResolveEnv
@@ -9,10 +13,9 @@ import Bundler.Parse
 import Bundler.Rename.Plan
 import Bundler.Symbols
 import Data.Generics (Data, everywhereM, extM, gmapM, mkM)
-import Data.List (foldl')
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe, mapMaybe)
+import Data.Maybe (fromMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import GHC.Hs
@@ -21,11 +24,9 @@ import GHC.Types.Name.Occurrence
   , mkVarOcc
   , occNameSpace
   , occNameString
-  , varName
   )
 import GHC.Types.Name.Reader (RdrName (..), mkRdrUnqual, rdrNameOcc)
 import GHC.Types.SrcLoc (GenLocated (..), unLoc)
-import Language.Haskell.Syntax.Module.Name (ModuleName, moduleNameString)
 
 type M = Either BundleError
 
@@ -52,6 +53,10 @@ data ResolveEnv = ResolveEnv
   -- imports: origins of individual names are unknowable without package
   -- interfaces, so these are kept verbatim (GHC's scope-union semantics
   -- make repeated imports of one module behave correctly).
+  , reExtAlias :: Map ModuleName ModuleName
+  -- ^ Canonical qualifier per external module (default: the module name
+  -- itself; overridable via @--rename-cmd@'s @extmod@ kind). Injected
+  -- after environment construction, once the set of externals is known.
   }
 
 -- | Build the environment for one file from its imports of local modules.
@@ -81,6 +86,7 @@ mkResolveEnv plan symsOf self pf = do
       , reQualExt = if isLibrary then Map.fromList (concatMap (qualExtOf . unLoc) imports) else Map.empty
       , reUnqualExt = if isLibrary then Map.fromList (concatMap (unqualExtOf . unLoc) imports) else Map.empty
       , reOpenExtImports = if isLibrary then filter (isOpenExt . unLoc) imports else []
+      , reExtAlias = Map.empty
       }
   where
     imports = hsmodImports (unLoc (pfModule pf))
@@ -167,7 +173,6 @@ mkResolveEnv plan symsOf self pf = do
             checked keys = case filter (`Set.notMember` msExported syms) keys of
               [] -> pure keys
               (_, name) : _ -> Left (NotExported name (moduleNameString m))
-        wrappedKey = occKeyOf . ieWrappedName . unLoc
         claim syms (_, name) =
           filter (`Map.member` msAll syms) [(NsValue, name), (NsData, name)]
 
@@ -221,7 +226,7 @@ applyRenames plan symsOf env decls = do
             Right (unqual occ new)
         | otherwise -> case Map.lookup (occKeyOf rdr) (reUnqualLocal env) of
             Nothing -> case Map.lookup (occKeyOf rdr) (reUnqualExt env) of
-              Just m -> Right (Qual m occ)
+              Just m -> Right (Qual (extAliasOf m) occ)
               Nothing -> Right rdr
             Just [(_, new)] -> Right (unqual occ new)
             Just several ->
@@ -241,8 +246,10 @@ applyRenames plan symsOf env decls = do
                       (moduleNameString m)
                   )
         | Just m <- Map.lookup q (reQualExt env) ->
-            Right (Qual m occ)
+            Right (Qual (extAliasOf m) occ)
       _ -> Right rdr
+
+    extAliasOf m = Map.findWithDefault m m (reExtAlias env)
 
     lookupPlan m key = Map.lookup m (rpByModule plan) >>= Map.lookup key
     unqual occ new = mkRdrUnqual (mkOccName (occNameSpace occ) new)

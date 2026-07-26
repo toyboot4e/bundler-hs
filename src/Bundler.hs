@@ -10,6 +10,7 @@ import Bundler.Parse
 import Bundler.Render
 import Bundler.Rename.Apply
 import Bundler.Rename.Plan
+import Bundler.RenameCmd
 import Bundler.Symbols
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except (ExceptT (..), runExceptT)
@@ -22,7 +23,7 @@ import GHC.Driver.Session (DynFlags)
 import GHC.Hs (hsmodDecls, hsmodImports, ideclName)
 import GHC.Hs qualified
 import GHC.Types.SrcLoc (unLoc)
-import Language.Haskell.Syntax.Module.Name (moduleNameString)
+import Language.Haskell.Syntax.Module.Name (mkModuleName, moduleNameString)
 import System.FilePath (takeDirectory)
 import System.IO (hPutStrLn, readFile', stderr)
 
@@ -40,26 +41,36 @@ bundle cfg = runExceptT $ do
   srcDirs <- traverse dirDefaults (cfgSrcDirs cfg)
   locals <- ExceptT (discoverLocalModules [(d, flags) | (d, flags, _) <- srcDirs] userFile)
   let withSyms = [(lm, moduleSymbols (lmParsed lm)) | lm <- locals]
-  plan <- ExceptT (pure (mkRenamePlan userFile (moduleSymbols userFile) withSyms))
+  mrenamer <- liftIO (traverse startRenamer (cfgRenameCmd cfg))
+  plan <- ExceptT (mkRenamePlan mrenamer userFile (moduleSymbols userFile) withSyms)
   let symsOf = Map.fromList [(lmName lm, syms) | (lm, syms) <- withSyms]
       renameWith env pf = applyRenames plan symsOf env (declsOf pf)
-  libEnvs <-
+  libEnvs0 <-
     traverse
       (\lm -> ExceptT (pure (mkResolveEnv plan symsOf (Just (lmName lm)) (lmParsed lm))))
       locals
   userEnv <- ExceptT (pure (mkResolveEnv plan symsOf Nothing userFile))
+  let canonicalExts =
+        Set.toAscList . Set.fromList . concat $
+          [Map.elems (reQualExt e) <> Map.elems (reUnqualExt e) | e <- libEnvs0]
+  extAliases <- traverse (queryExtAlias mrenamer) canonicalExts
+  closeRenamer mrenamer
+  let extAliasMap = Map.fromList extAliases
+      libEnvs = [e {reExtAlias = extAliasMap} | e <- libEnvs0]
   renamedLocals <-
     sequence
       [ ExceptT (pure ((,) lm <$> renameWith env (lmParsed lm)))
       | (lm, env) <- zip locals libEnvs
       ]
   renamedUser <- ExceptT (pure (renameWith userEnv userFile))
-  let canonicalExts =
-        Set.toAscList . Set.fromList . concat $
-          [Map.elems (reQualExt e) <> Map.elems (reUnqualExt e) | e <- libEnvs]
-      keptOpen = nubOrd (map renderImport (concatMap reOpenExtImports libEnvs))
+  let keptOpen = nubOrd (map renderImport (concatMap reOpenExtImports libEnvs))
       extImportLines =
-        ["import qualified " <> moduleNameString m | m <- canonicalExts] <> keptOpen
+        [ "import qualified "
+            <> moduleNameString m
+            <> (if alias == m then "" else " as " <> moduleNameString alias)
+        | (m, alias) <- extAliases
+        ]
+          <> keptOpen
       out =
         assemble
           userDefaults
@@ -82,6 +93,23 @@ bundle cfg = runExceptT $ do
       defs <- ExceptT (findProjectDefaults dir)
       flags <- ExceptT (applyPragmaLines baseDynFlags (pdPragmas defs))
       pure (dir, flags, defs)
+
+    -- The canonical qualifier for one external module: the module name
+    -- itself, unless the rename command's extmod kind says otherwise.
+    queryExtAlias mrenamer m = case mrenamer of
+      Nothing -> pure (m, m)
+      Just renamer -> do
+        alias <-
+          ExceptT . liftIO . queryRenamer renamer $
+            RenameQuery
+              { rqKind = "extmod"
+              , rqModule = moduleNameString m
+              , rqSuffix = filter (/= '.') (moduleNameString m)
+              , rqName = moduleNameString m
+              }
+        pure (m, mkModuleName alias)
+
+    closeRenamer = maybe (pure ()) (ExceptT . liftIO . stopRenamer)
 
 declsOf :: ParsedFile -> [GHC.Hs.LHsDecl GHC.Hs.GhcPs]
 declsOf pf = hsmodDecls (unLoc (pfModule pf))

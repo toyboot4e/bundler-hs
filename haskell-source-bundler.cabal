@@ -31,6 +31,7 @@ library
         Bundler.Render
         Bundler.Rename.Apply
         Bundler.Rename.Plan
+        Bundler.RenameCmd
         Bundler.Symbols
     build-depends:
         base                 >=4.18 && <5
@@ -68,6 +69,7 @@ test-suite haskell-source-bundler-test
       , directory
       , filepath
       , haskell-source-bundler
+      , process
       , tasty
       , tasty-golden
       , tasty-hunit

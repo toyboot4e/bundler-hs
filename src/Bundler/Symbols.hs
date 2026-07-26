@@ -6,9 +6,11 @@ module Bundler.Symbols
   , moduleSymbols
   , nsKeyOf
   , occKeyOf
+  , isOperatorString
   ) where
 
 import Bundler.Parse
+import Data.Char (isAlphaNum)
 import Data.Foldable (toList)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -66,6 +68,10 @@ occKeyOf :: RdrName -> OccKey
 occKeyOf rdr = (nsKeyOf occ, occNameString occ)
   where
     occ = rdrNameOcc rdr
+
+-- | Operator names cannot take an alphanumeric suffix.
+isOperatorString :: String -> Bool
+isOperatorString = not . all (\c -> isAlphaNum c || c `elem` "_'")
 
 -- | Collect all top-level symbols of a parsed module.
 moduleSymbols :: ParsedFile -> ModuleSymbols
@@ -141,7 +147,8 @@ declBinders decl = case decl of
             | RecCon flds <- [details]
             , fld <- flds
             ]
-      VarBind {} -> []
+      -- VarBind and trees-that-grow extension constructors.
+      _ -> []
 
     tyClBinders tycl = case tycl of
       SynDecl {tcdLName = n} -> [(rdrKey n, SymTyCon, Nothing, Nothing)]
@@ -162,6 +169,7 @@ declBinders decl = case decl of
               <> [ (rdrKey (fdLName (unLoc at)), SymTyCon, Just clsName, Nothing)
                  | at <- ats
                  ]
+      _ -> []
 
     conBinders tyName con = case con of
       ConDeclH98 {con_name = n, con_args = args} ->
@@ -183,9 +191,12 @@ declBinders decl = case decl of
                     , conName <- conNames
                     ]
                 _ -> []
+      _ -> []
 
-    fieldBinders tyName conName (ConDeclField {cd_fld_names = ns}) =
-      [ ((NsValue, name), SymField, Just tyName, Just conName)
-      | fld <- ns
-      , let name = occNameString (rdrNameOcc (unLoc (foLabel (unLoc fld))))
-      ]
+    fieldBinders tyName conName fld' = case fld' of
+      ConDeclField {cd_fld_names = ns} ->
+        [ ((NsValue, name), SymField, Just tyName, Just conName)
+        | fld <- ns
+        , let name = occNameString (rdrNameOcc (unLoc (foLabel (unLoc fld))))
+        ]
+      _ -> []

@@ -1,0 +1,1 @@
+Main.hs --src lib --rename-cmd {DIR}/rename.sh

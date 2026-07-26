@@ -35,6 +35,8 @@ data BundleError
     AmbiguousName String [String]
   | -- | An import list mentions a name the local module does not export.
     NotExported String String
+  | -- | The @--rename-cmd@ child failed or produced an unusable response.
+    RenameCmdError String String
   deriving (Show)
 
 renderBundleError :: BundleError -> String
@@ -87,3 +89,5 @@ renderBundleError err = case err of
       <> intercalate " or " origins
   NotExported name m ->
     "error: module " <> m <> " does not export " <> name
+  RenameCmdError ctx why ->
+    "error: rename command failed (" <> ctx <> "): " <> why
