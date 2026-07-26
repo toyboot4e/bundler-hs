@@ -23,12 +23,15 @@ library
     hs-source-dirs:   src
     exposed-modules:
         Bundler
+        Bundler.Cabal
         Bundler.Config
+        Bundler.Discovery
         Bundler.Error
         Bundler.Parse
         Bundler.Render
     build-depends:
         base                 >=4.18 && <5
+      , bytestring
       , Cabal-syntax         >=3.12 && <3.17
       , containers
       , directory
@@ -38,6 +41,7 @@ library
       , optparse-applicative
       , syb
       , text
+      , transformers
       , typed-process
       , uniplate
 

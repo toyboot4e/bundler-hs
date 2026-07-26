@@ -3,12 +3,14 @@
 module Bundler.Parse
   ( ParsedFile (..)
   , baseDynFlags
+  , applyPragmaLines
   , parseHaskellFile
   ) where
 
 import Bundler.Error
 import GHC.Data.Bag (bagToList)
-import GHC.Driver.Session (DynFlags, defaultDynFlags)
+import GHC.Driver.Session (DynFlags, defaultDynFlags, xopt)
+import GHC.LanguageExtensions.Type qualified as LangExt
 import GHC.Hs (GhcPs, HsModule)
 import GHC.Parser.Errors.Types (PsMessage)
 import GHC.Parser.Lexer (PState, ParseResult (..), getPsErrorMessages)
@@ -40,6 +42,18 @@ data ParsedFile = ParsedFile
 baseDynFlags :: DynFlags
 baseDynFlags = defaultDynFlags fakeSettings
 
+-- | Apply synthesized @{-\# LANGUAGE ... \#-}@ lines (from cabal
+-- @default-language@/@default-extensions@) on top of the given flags, using
+-- GHC's own pragma parser so editions, @NoX@ negation, and implied
+-- extensions behave exactly as in a source file.
+applyPragmaLines :: DynFlags -> [String] -> IO (Either BundleError DynFlags)
+applyPragmaLines dflags [] = pure (Right dflags)
+applyPragmaLines dflags pragmaLines = do
+  parsed <- parsePragmasIntoDynFlags dflags ([], []) "<cabal defaults>" (unlines pragmaLines)
+  pure $ case parsed of
+    Left err -> Left (CabalError "<cabal defaults>" err)
+    Right flags -> Right flags
+
 -- | Parse one file: apply its own LANGUAGE/OPTIONS_GHC pragmas on top of the
 -- given base flags, then parse.
 parseHaskellFile :: DynFlags -> FilePath -> String -> IO (Either BundleError ParsedFile)
@@ -48,6 +62,9 @@ parseHaskellFile dflags path src = do
   case mflags of
     Left err ->
       pure (Left (ParseError path err))
+    Right flags
+      | xopt LangExt.Cpp flags ->
+          pure (Left (CppNotSupported path))
     Right flags ->
       pure $ case parseFile path flags src of
         POk _ modl ->

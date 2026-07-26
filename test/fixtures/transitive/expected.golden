@@ -1,0 +1,35 @@
+{-# LANGUAGE Haskell2010 #-}
+{-# LANGUAGE LambdaCase #-}
+
+module Main (
+        main
+    ) where
+
+-- ### Algo.C
+
+sumUp :: [Int] -> Int
+
+sumUp
+  = sum
+      . map
+          (\case
+             0 -> 1
+             n -> n)
+
+-- ### Algo.B
+
+solveB :: [Int] -> Int
+
+solveB xs = sumUp xs * 2
+
+-- ### Algo.A
+
+solveA :: [Int] -> Int
+
+solveA xs = sumUp xs + 1
+
+main :: IO ()
+
+main
+  = do print (A.solveA [1, 2, 3])
+       print (B.solveB [1, 2, 3])
