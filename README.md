@@ -98,7 +98,7 @@ Inside the dev shell (`direnv allow` or `nix develop`):
 $ just build          # cabal build all
 $ just test           # golden test suite
 $ just test-compile   # golden suite + ghc -fno-code check of every bundle
-$ just accept         # re-record goldens after an intentional change
+$ just test-accept    # re-record goldens after an intentional change
 $ just run Main.hs --src lib
 ```
 
