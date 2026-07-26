@@ -15,6 +15,7 @@ import Bundler.Render
 import Bundler.Symbols
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except (ExceptT (..), runExceptT)
+import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Containers.ListUtils (nubOrd)
 import Data.List (intercalate, intersect)
 import Data.Map.Strict qualified as Map
@@ -27,8 +28,10 @@ import GHC.Types.Name.Occurrence (occNameString)
 import GHC.Types.Name.Reader (rdrNameOcc)
 import GHC.Types.SrcLoc (unLoc)
 import Language.Haskell.Syntax.Module.Name (mkModuleName, moduleNameString)
+import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory)
 import System.IO (hPutStrLn, readFile', stderr)
+import System.Process.Typed (byteStringInput, readProcess, setStdin, shell)
 
 -- | Run the whole pipeline, producing the bundled source for stdout.
 --
@@ -89,7 +92,18 @@ bundle cfg = runExceptT $ do
         "note: kept library imports whose names cannot be attributed:\n"
           <> unlines (map ("  " <>) kept)
           <> "these may make names ambiguous in the bundle"
-  ExceptT (selfCheck out)
+  checked <- ExceptT (selfCheck out)
+  case cfgFormatCmd cfg of
+    Nothing -> pure checked
+    Just cmd -> do
+      formatted <- ExceptT (runFormatter cmd checked)
+      -- The formatter is arbitrary; make sure it returned Haskell.
+      reparsed <- liftIO (parseHaskellFile baseDynFlags "<formatted output>" formatted)
+      case reparsed of
+        Left err ->
+          ExceptT . pure . Left $
+            FormatCmdError cmd ("output no longer parses:\n" <> renderBundleError err)
+        Right _ -> pure formatted
   where
     dirDefaults :: FilePath -> ExceptT BundleError IO (FilePath, DynFlags, ProjectDefaults)
     dirDefaults dir = do
@@ -209,6 +223,21 @@ signatureFor sig bind = case (unLoc sig, unLoc bind) of
       GHC.Hs.PatSynBind _ (GHC.Hs.PSB {GHC.Hs.psb_id = n}) -> [nameOf (unLoc n)]
       _ -> []
     nameOf = occNameString . rdrNameOcc
+
+-- | Pipe the bundle through the user's formatter (stdin to stdout).
+runFormatter :: String -> String -> IO (Either BundleError String)
+runFormatter cmd input = do
+  (code, out, err) <-
+    readProcess
+      (setStdin (byteStringInput (LBS8.pack input)) (shell cmd))
+  pure $ case code of
+    ExitSuccess -> Right (LBS8.unpack out)
+    ExitFailure n ->
+      Left
+        ( FormatCmdError
+            cmd
+            ("exited with code " <> show n <> ":\n" <> LBS8.unpack err)
+        )
 
 -- | Re-parse our own output before emitting it: the pretty-printer is not
 -- guaranteed to produce re-parseable code in every corner case, and a bundle

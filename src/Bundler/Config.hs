@@ -17,7 +17,10 @@ data Config = Config
     cfgSrcDirs :: [FilePath],
     -- | Optional external command implementing the rename protocol
     -- (@--rename-cmd CMD@).
-    cfgRenameCmd :: Maybe String
+    cfgRenameCmd :: Maybe String,
+    -- | Optional formatter the finished bundle is piped through
+    -- (@--format-cmd CMD@, e.g. @ormolu@).
+    cfgFormatCmd :: Maybe String
   }
   deriving (Show)
 
@@ -40,6 +43,13 @@ configParser =
           ( long "rename-cmd"
               <> metavar "CMD"
               <> help "External command deciding renamed names (TSV protocol on stdin/stdout)"
+          )
+      )
+    <*> optional
+      ( strOption
+          ( long "format-cmd"
+              <> metavar "CMD"
+              <> help "Formatter to pipe the bundle through (stdin to stdout), e.g. ormolu"
           )
       )
 

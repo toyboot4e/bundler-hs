@@ -1,0 +1,1 @@
+Main.hs --src lib --format-cmd {DIR}/format.sh

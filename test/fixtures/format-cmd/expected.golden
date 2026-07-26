@@ -1,0 +1,12 @@
+-- formatted
+module Main (
+        main
+    ) where
+
+-- ### Alg
+
+incAlg :: Int -> Int
+incAlg = (+ 1)
+
+main :: IO ()
+main = print (incAlg 41)

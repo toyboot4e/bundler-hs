@@ -20,6 +20,9 @@ $ bundler-hs Main.hs --src path/to/your/library > submission.hs
   An import `A.B.C` is expanded iff `DIR/A/B/C.hs` exists; anything else
   stays a normal import.
 - Output goes to stdout; all errors go to stderr with a non-zero exit.
+- `--format-cmd CMD`: pipe the finished bundle through a formatter
+  (stdin to stdout), e.g. `--format-cmd ormolu`. The formatted result is
+  re-parsed before it reaches stdout.
 
 ## Renaming
 

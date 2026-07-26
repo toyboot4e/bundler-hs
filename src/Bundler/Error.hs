@@ -36,6 +36,9 @@ data BundleError
     NotExported String String
   | -- | The @--rename-cmd@ child failed or produced an unusable response.
     RenameCmdError String String
+  | -- | The @--format-cmd@ child failed or produced output that no longer
+    -- parses.
+    FormatCmdError String String
   deriving (Show)
 
 renderBundleError :: BundleError -> String
@@ -88,3 +91,5 @@ renderBundleError err = case err of
     "error: module " <> m <> " does not export " <> name
   RenameCmdError ctx why ->
     "error: rename command failed (" <> ctx <> "): " <> why
+  FormatCmdError cmd why ->
+    "error: format command failed (" <> cmd <> "): " <> why
