@@ -16,6 +16,7 @@ import Control.Monad.Trans.Except (ExceptT (..), runExceptT)
 import Data.Containers.ListUtils (nubOrd)
 import Data.List (intercalate)
 import Data.Maybe (fromMaybe)
+import Data.Map.Strict qualified as Map
 import Data.Set qualified as Set
 import GHC.Driver.Session (DynFlags)
 import GHC.Hs (hsmodDecls, hsmodImports, ideclName)
@@ -40,9 +41,10 @@ bundle cfg = runExceptT $ do
   locals <- ExceptT (discoverLocalModules [(d, flags) | (d, flags, _) <- srcDirs] userFile)
   let withSyms = [(lm, moduleSymbols (lmParsed lm)) | lm <- locals]
   plan <- ExceptT (pure (mkRenamePlan userFile (moduleSymbols userFile) withSyms))
-  let localNames = Set.fromList (map lmName locals)
-      renameIn self pf =
-        applyRenames plan (mkResolveEnv localNames self pf) (declsOf pf)
+  let symsOf = Map.fromList [(lmName lm, syms) | (lm, syms) <- withSyms]
+      renameIn self pf = do
+        env <- mkResolveEnv plan symsOf self pf
+        applyRenames plan env (declsOf pf)
   renamedLocals <-
     traverse
       (\lm -> ExceptT (pure ((,) lm <$> renameIn (Just (lmName lm)) (lmParsed lm))))

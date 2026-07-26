@@ -31,6 +31,10 @@ data BundleError
   | -- | A qualified reference to a local module names something that
     -- module does not define (likely a re-export, unsupported in v1).
     UnknownQualifiedName String String
+  | -- | An unqualified name is importable from several local modules.
+    AmbiguousName String [String]
+  | -- | An import list mentions a name the local module does not export.
+    NotExported String String
   deriving (Show)
 
 renderBundleError :: BundleError -> String
@@ -76,3 +80,10 @@ renderBundleError err = case err of
       <> " does not resolve to a definition in local module "
       <> m
       <> " (re-exports are not supported)"
+  AmbiguousName name origins ->
+    "error: "
+      <> name
+      <> " is ambiguous; it could come from "
+      <> intercalate " or " origins
+  NotExported name m ->
+    "error: module " <> m <> " does not export " <> name
