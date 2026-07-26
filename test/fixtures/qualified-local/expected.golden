@@ -1,0 +1,33 @@
+module Main (
+        main
+    ) where
+
+-- ### Beta
+
+fBeta :: Int -> Int
+
+fBeta = succ
+
+-- ### Alpha
+
+data HeapA = HeapA {itemsA :: [Int], sizeA :: Int}
+
+emptyHeapA :: HeapA
+
+emptyHeapA = HeapA {itemsA = [], sizeA = 0}
+
+pushA :: Int -> HeapA -> HeapA
+
+pushA x h = HeapA {itemsA = x : itemsA h, sizeA = sizeA h + 1}
+
+fA :: HeapA -> Int
+
+fA h = sum (itemsA h) + sizeA h
+
+main :: IO ()
+
+main
+  = do let h = pushA 1 emptyHeapA
+       print (fA h)
+       print (sizeA h)
+       print (fBeta 41)

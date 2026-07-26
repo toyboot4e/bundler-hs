@@ -29,6 +29,9 @@ library
         Bundler.Error
         Bundler.Parse
         Bundler.Render
+        Bundler.Rename.Apply
+        Bundler.Rename.Plan
+        Bundler.Symbols
     build-depends:
         base                 >=4.18 && <5
       , bytestring

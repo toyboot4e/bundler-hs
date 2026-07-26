@@ -25,6 +25,12 @@ data BundleError
     CabalError FilePath String
   | -- | More than one @.cabal@ file in the project root candidate.
     AmbiguousCabal FilePath [FilePath]
+  | -- | Two renamed names (or a renamed name and a user-file name) collide
+    -- in the bundle's flat namespace.
+    NameCollision String [String]
+  | -- | A qualified reference to a local module names something that
+    -- module does not define (likely a re-export, unsupported in v1).
+    UnknownQualifiedName String String
   deriving (Show)
 
 renderBundleError :: BundleError -> String
@@ -58,3 +64,15 @@ renderBundleError err = case err of
       ( ("error: multiple .cabal files in " <> dir <> ":")
           : map ("  - " <>) files
       )
+  NameCollision name origins ->
+    unlines
+      ( ("error: renamed name " <> name <> " collides between:")
+          : map ("  - " <>) origins
+          <> ["hint: use --rename-cmd to pick different names"]
+      )
+  UnknownQualifiedName written m ->
+    "error: "
+      <> written
+      <> " does not resolve to a definition in local module "
+      <> m
+      <> " (re-exports are not supported)"
