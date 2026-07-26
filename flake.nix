@@ -5,9 +5,8 @@
 
   outputs = { self, nixpkgs }:
     let
-      systems = [ "x86_64-linux" "aarch64-linux" "aarch64-darwin" ];
       forAllSystems = f:
-        nixpkgs.lib.genAttrs systems (system:
+        nixpkgs.lib.genAttrs nixpkgs.lib.systems.flakeExposed (system:
           let
             pkgs = nixpkgs.legacyPackages.${system};
             pkg = pkgs.haskellPackages.callCabal2nix "bundler-hs" ./. { };
