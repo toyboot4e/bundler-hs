@@ -26,7 +26,7 @@ run *ARGS:
 
 # GHCi with the library in scope
 repl:
-    cabal repl haskell-source-bundler
+    cabal repl bundler-hs
 
 # Remove build artifacts
 clean:

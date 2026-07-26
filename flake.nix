@@ -10,7 +10,7 @@
         nixpkgs.lib.genAttrs systems (system:
           let
             pkgs = nixpkgs.legacyPackages.${system};
-            pkg = pkgs.haskellPackages.callCabal2nix "haskell-source-bundler" ./. { };
+            pkg = pkgs.haskellPackages.callCabal2nix "bundler-hs" ./. { };
           in
           f pkgs pkg);
     in

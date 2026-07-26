@@ -1,5 +1,5 @@
 cabal-version:      3.0
-name:               haskell-source-bundler
+name:               bundler-hs
 version:            0.1.0.0
 synopsis:           Bundle a Haskell source file with its local library modules into one file
 description:
@@ -55,10 +55,10 @@ executable hs-bundle
     main-is:          Main.hs
     build-depends:
         base
-      , haskell-source-bundler
+      , bundler-hs
       , optparse-applicative
 
-test-suite haskell-source-bundler-test
+test-suite bundler-hs-test
     import:           warnings
     type:             exitcode-stdio-1.0
     hs-source-dirs:   test
@@ -68,7 +68,7 @@ test-suite haskell-source-bundler-test
       , bytestring
       , directory
       , filepath
-      , haskell-source-bundler
+      , bundler-hs
       , process
       , tasty
       , tasty-golden

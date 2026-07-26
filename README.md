@@ -1,4 +1,4 @@
-# haskell-source-bundler
+# bundler-hs
 
 Bundle a Haskell source file with its local library modules into one
 self-contained file for competitive programming judges. External (Hackage)
