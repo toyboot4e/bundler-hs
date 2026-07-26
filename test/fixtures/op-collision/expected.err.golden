@@ -1,0 +1,4 @@
+error: renamed name <+> collides between:
+  - OpA
+  - OpB
+hint: use --rename-cmd to pick different names

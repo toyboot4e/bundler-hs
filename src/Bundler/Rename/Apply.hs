@@ -8,13 +8,21 @@ import Bundler.Error
 import Bundler.Parse
 import Bundler.Rename.Plan
 import Bundler.Symbols
-import Data.Generics (Data, extM, gmapM)
+import Data.Generics (Data, everywhereM, extM, gmapM, mkM)
+import Data.List (foldl')
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import GHC.Hs
-import GHC.Types.Name.Occurrence (mkOccName, occNameSpace, occNameString)
+import GHC.Types.Name.Occurrence
+  ( mkOccName
+  , mkVarOcc
+  , occNameSpace
+  , occNameString
+  , varName
+  )
 import GHC.Types.Name.Reader (RdrName (..), mkRdrUnqual, rdrNameOcc)
 import GHC.Types.SrcLoc (GenLocated (..), unLoc)
 import Language.Haskell.Syntax.Module.Name (ModuleName, moduleNameString)
@@ -120,10 +128,13 @@ type Shadow = Set OccKey
 -- be a plain @everywhereM@.
 applyRenames
   :: RenamePlan
+  -> Map ModuleName ModuleSymbols
   -> ResolveEnv
   -> [LHsDecl GhcPs]
   -> Either BundleError [LHsDecl GhcPs]
-applyRenames plan env = traverse (go Set.empty)
+applyRenames plan symsOf env decls = do
+  expanded <- traverse (expandWildcards plan symsOf env) decls
+  traverse (go Set.empty) expanded
   where
     go :: Data a => Shadow -> a -> M a
     go sc =
@@ -133,6 +144,7 @@ applyRenames plan env = traverse (go Set.empty)
         `extM` (matchCase sc)
         `extM` (grhsCase sc)
         `extM` (bindCase sc)
+        `extM` (instCase sc)
       where
         gen :: Data d => d -> M d
         gen = gmapM (go sc)
@@ -226,6 +238,85 @@ applyRenames plan env = traverse (go Set.empty)
         pure (HsDo x ctx (L l stmts'))
       _ -> gmapM (go sc) e
 
+    -- Instance declarations: method binders resolve via the class of the
+    -- instance head, not lexically. A local class's methods are renamed
+    -- with the class's own module plan; an external class's methods are
+    -- left alone even when a same-named local export is in scope. The
+    -- bodies still get the normal lexical treatment; only the binder
+    -- names are overridden afterwards.
+    instCase :: Shadow -> ClsInstDecl GhcPs -> M (ClsInstDecl GhcPs)
+    instCase sc inst = do
+      inst' <- gmapM (go sc) inst
+      let clsPlan = do
+            cls <- headClassName (cid_poly_ty inst)
+            m <- resolveToModule (unLoc cls)
+            Map.lookup m (rpByModule plan)
+          methodName old = case clsPlan of
+            Nothing -> old
+            Just p -> fromMaybe old (Map.lookup ((NsValue, old)) p)
+          fixOne orig (L l b) = L l (setMethodName (methodName orig) b)
+      pure
+        inst'
+          { cid_binds =
+              zipWith
+                fixOne
+                (map bindName (cid_binds inst))
+                (cid_binds inst')
+          , cid_sigs =
+              zipWith
+                (fixSigNames methodName)
+                (cid_sigs inst)
+                (cid_sigs inst')
+          }
+      where
+        bindName (L _ b) = case b of
+          FunBind {fun_id = fid} -> occNameString (rdrNameOcc (unLoc fid))
+          _ -> ""
+
+        -- InstanceSigs: the signature names are method references too.
+        fixSigNames methodName (L _ orig) (L l new) = case (orig, new) of
+          (TypeSig _ origNames _, TypeSig x _ ty) ->
+            L l (TypeSig x (map (fmap (renameTo . methodName . nameOf)) origNames) ty)
+          _ -> L l new
+          where
+            nameOf = occNameString . rdrNameOcc
+            renameTo s = mkRdrUnqual (mkVarOcc s)
+
+    -- Override the binder name of a method bind: fun_id and every
+    -- equation's context name (the printer renders the latter).
+    setMethodName :: String -> HsBind GhcPs -> HsBind GhcPs
+    setMethodName name b = case b of
+      FunBind {fun_id = fid, fun_matches = mg} ->
+        b
+          { fun_id = fmap retarget fid
+          , fun_matches =
+              mg {mg_alts = fmap (map (fmap fixMatch)) (mg_alts mg)}
+          }
+      _ -> b
+      where
+        retarget rdr =
+          mkRdrUnqual (mkOccName (occNameSpace (rdrNameOcc rdr)) name)
+        fixMatch m = case m_ctxt m of
+          ctxt@(FunRhs {mc_fun = f}) ->
+            m {m_ctxt = ctxt {mc_fun = fmap retarget f}}
+          _ -> m
+
+    -- The class named by an instance head: strip foralls, contexts,
+    -- parens, and type applications down to the head type constructor.
+    headClassName :: LHsSigType GhcPs -> Maybe (LocatedN RdrName)
+    headClassName sigTy = headOf (sig_body (unLoc sigTy))
+      where
+        headOf lty = case unLoc lty of
+          HsForAllTy {hst_body = body} -> headOf body
+          HsQualTy {hst_body = body} -> headOf body
+          HsParTy _ inner -> headOf inner
+          HsAppTy _ f _ -> headOf f
+          HsKindSig _ inner _ -> headOf inner
+          HsTyVar _ _ n -> Just n
+          _ -> Nothing
+
+    resolveToModule = resolveRdrModule plan env
+
     -- Sequential scoping through a statement list, returning the scope
     -- after the last statement.
     threadStmts :: Shadow -> [ExprLStmt GhcPs] -> M (Shadow, [ExprLStmt GhcPs])
@@ -249,3 +340,128 @@ applyRenames plan env = traverse (go Set.empty)
           pure (sc <> binders collectStmtBinders other', other')
       (scEnd, rest') <- threadStmts sc' rest
       pure (scEnd, L l stmt' : rest')
+
+-- | Which local module an occurrence belongs to, if any: qualified via the
+-- import alias, unqualified via the file's own module or its unqualified
+-- local imports.
+resolveRdrModule :: RenamePlan -> ResolveEnv -> RdrName -> Maybe ModuleName
+resolveRdrModule plan env rdr = case rdr of
+  Qual q _ -> Map.lookup q (reQualLocal env)
+  Unqual occ
+    | Just self <- reSelf env
+    , Just p <- Map.lookup self (rpByModule plan)
+    , (nsKeyOf occ, occNameString occ) `Map.member` p ->
+        Just self
+    | otherwise ->
+        case Map.lookup (nsKeyOf occ, occNameString occ) (reUnqualLocal env) of
+          Just [(m, _)] -> Just m
+          _ -> Nothing
+  _ -> Nothing
+
+-- | Pre-pass: expand @C{..}@ (RecordWildCards) over local-module
+-- constructors into explicit fields, because the implied binders/uses are
+-- invisible to the parser and would defeat both shadow tracking and field
+-- renaming. The synthesized labels carry their final (renamed) names; the
+-- RHS variables keep the old field names, which is exactly what the
+-- wildcard bound or referenced.
+expandWildcards
+  :: RenamePlan
+  -> Map ModuleName ModuleSymbols
+  -> ResolveEnv
+  -> LHsDecl GhcPs
+  -> Either BundleError (LHsDecl GhcPs)
+expandWildcards plan symsOf env =
+  everywhereM (mkM patCase `extM` exprCase `extM` punPatCase `extM` punExprCase)
+  where
+    -- Puns over renamed fields must become explicit (@C{fA = f}@): the pun
+    -- form would bind/reference a different variable after renaming, and
+    -- the parser does not materialize a real pun RHS (so shadow tracking
+    -- would miss the binder). The synthesized label carries its final
+    -- name; the RHS keeps the old one.
+    punPatCase
+      :: HsFieldBind (LFieldOcc GhcPs) (LPat GhcPs)
+      -> Either BundleError (HsFieldBind (LFieldOcc GhcPs) (LPat GhcPs))
+    punPatCase = punCase varPatRhs
+
+    punExprCase
+      :: HsFieldBind (LFieldOcc GhcPs) (LHsExpr GhcPs)
+      -> Either BundleError (HsFieldBind (LFieldOcc GhcPs) (LHsExpr GhcPs))
+    punExprCase = punCase varExprRhs
+
+    punCase
+      :: (String -> arg)
+      -> HsFieldBind (LFieldOcc GhcPs) arg
+      -> Either BundleError (HsFieldBind (LFieldOcc GhcPs) arg)
+    punCase mkRhs fld
+      | hfbPun fld
+      , let rdr = unLoc (foLabel (unLoc (hfbLHS fld)))
+      , let old = occNameString (rdrNameOcc rdr)
+      , Just m <- resolveRdrModule plan env rdr
+      , Just new <- Map.lookup m (rpByModule plan) >>= Map.lookup (NsValue, old) =
+          pure
+            fld
+              { hfbLHS =
+                  noLocA
+                    ( FieldOcc
+                        noExtField
+                        (noLocA (mkRdrUnqual (mkOccName (occNameSpace (rdrNameOcc rdr)) new)))
+                    )
+              , hfbRHS = mkRhs old
+              , hfbPun = False
+              }
+      | otherwise = pure fld
+    patCase :: Pat GhcPs -> Either BundleError (Pat GhcPs)
+    patCase p = case p of
+      ConPat {pat_con = con, pat_args = RecCon flds}
+        | Just (m, fields) <- localConFields (unLoc con) ->
+            pure p {pat_args = RecCon (expandFlds varPatRhs m fields flds)}
+      _ -> pure p
+
+    exprCase :: HsExpr GhcPs -> Either BundleError (HsExpr GhcPs)
+    exprCase e = case e of
+      RecordCon {rcon_con = con, rcon_flds = flds}
+        | Just (m, fields) <- localConFields (unLoc con) ->
+            pure e {rcon_flds = expandFlds varExprRhs m fields flds}
+      _ -> pure e
+
+    localConFields :: RdrName -> Maybe (ModuleName, [String])
+    localConFields rdr = do
+      m <- resolveRdrModule plan env rdr
+      syms <- Map.lookup m symsOf
+      fields <- Map.lookup (occNameString (rdrNameOcc rdr)) (msFieldsOf syms)
+      pure (m, fields)
+
+    expandFlds
+      :: (String -> arg)
+      -> ModuleName
+      -> [String]
+      -> HsRecFields GhcPs arg
+      -> HsRecFields GhcPs arg
+    expandFlds mkRhs m fields hrf = case rec_dotdot hrf of
+      Nothing -> hrf
+      Just _ ->
+        hrf
+          { rec_flds = rec_flds hrf <> map synth missing
+          , rec_dotdot = Nothing
+          }
+      where
+        explicit =
+          Set.fromList
+            [ occNameString (rdrNameOcc (unLoc (foLabel (unLoc (hfbLHS (unLoc f))))))
+            | f <- rec_flds hrf
+            ]
+        missing = filter (`Set.notMember` explicit) fields
+        synth old =
+          noLocA
+            ( HsFieldBind
+                noAnn
+                (noLocA (FieldOcc noExtField (noLocA (mkRdrUnqual (mkVarOcc (newNameOf old))))))
+                (mkRhs old)
+                False
+            )
+        newNameOf old =
+          fromMaybe old $
+            Map.lookup m (rpByModule plan) >>= Map.lookup (NsValue, old)
+
+    varPatRhs old = noLocA (VarPat noExtField (noLocA (mkRdrUnqual (mkVarOcc old))))
+    varExprRhs old = noLocA (HsVar noExtField (noLocA (mkRdrUnqual (mkVarOcc old))))

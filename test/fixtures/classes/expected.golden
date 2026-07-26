@@ -1,0 +1,41 @@
+module Main (
+        main
+    ) where
+
+-- ### Pretty
+
+class PrettyP a where
+  prettyP :: a -> String
+  indentP :: a -> Int
+  indentP _ = 0
+
+instance PrettyP Int where
+  prettyP = show
+
+-- ### Decoy
+
+displayDecoy :: Int -> String
+
+displayDecoy n = "<" <> Prelude.show n <> ">"
+
+showDecoy :: Int -> String
+
+showDecoy = displayDecoy
+
+data Box = Box Int
+
+instance PrettyP Box where
+  prettyP (Box n) = "Box " <> prettyP n
+  indentP _ = 2
+
+newtype Tag = Tag Int
+
+instance Show Tag where
+  show (Tag n) = "#" <> displayDecoy n
+
+main :: IO ()
+
+main
+  = do putStrLn (prettyP (Box 1))
+       print (indentP (Box 1))
+       print (Tag 7)

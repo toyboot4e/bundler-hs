@@ -44,7 +44,7 @@ bundle cfg = runExceptT $ do
   let symsOf = Map.fromList [(lmName lm, syms) | (lm, syms) <- withSyms]
       renameIn self pf = do
         env <- mkResolveEnv plan symsOf self pf
-        applyRenames plan env (declsOf pf)
+        applyRenames plan symsOf env (declsOf pf)
   renamedLocals <-
     traverse
       (\lm -> ExceptT (pure ((,) lm <$> renameIn (Just (lmName lm)) (lmParsed lm))))
