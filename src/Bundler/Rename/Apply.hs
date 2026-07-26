@@ -505,31 +505,52 @@ expandWildcards plan symsOf env =
       [String] ->
       HsRecFields GhcPs arg ->
       HsRecFields GhcPs arg
-    expandFlds mkRhs m fields hrf = case rec_dotdot hrf of
-      Nothing -> hrf
-      Just _ ->
-        hrf
-          { rec_flds = rec_flds hrf <> map synth missing,
-            rec_dotdot = Nothing
-          }
+    expandFlds mkRhs m fields hrf =
+      hrf
+        { rec_flds = map fixExplicit (rec_flds hrf) <> map synth missing,
+          rec_dotdot = Nothing
+        }
       where
+        -- Explicit labels are resolved via the constructor, exactly like
+        -- GHC does: with DisambiguateRecordFields an unqualified label is
+        -- legal even when the module is imported qualified-only, so the
+        -- lexical pass would miss it. Renaming happens here (the label
+        -- becomes its final name and no longer matches any plan key); a
+        -- still-punned field also gets its RHS materialized.
+        fixExplicit lfld@(L l fld) =
+          case (unLoc (foLabel (unLoc (hfbLHS fld))), planned) of
+            (Unqual occ, Just planOf)
+              | let old = occNameString occ,
+                Just new <- Map.lookup (NsValue, old) planOf ->
+                  L
+                    l
+                    fld
+                      { hfbLHS = finalLabel (occNameSpace occ) new,
+                        hfbRHS = if hfbPun fld then mkRhs old else hfbRHS fld,
+                        hfbPun = False
+                      }
+            _ -> lfld
+        planned = Map.lookup m (rpByModule plan)
+
         explicit =
           Set.fromList
             [ occNameString (rdrNameOcc (unLoc (foLabel (unLoc (hfbLHS (unLoc f))))))
             | f <- rec_flds hrf
             ]
-        missing = filter (`Set.notMember` explicit) fields
+        missing = case rec_dotdot hrf of
+          Nothing -> []
+          Just _ -> filter (`Set.notMember` explicit) fields
         synth old =
           noLocA
             ( HsFieldBind
                 noAnn
-                (noLocA (FieldOcc noExtField (noLocA (mkRdrUnqual (mkVarOcc (newNameOf old))))))
+                (finalLabel (occNameSpace (mkVarOcc old)) (newNameOf old))
                 (mkRhs old)
                 False
             )
-        newNameOf old =
-          fromMaybe old $
-            Map.lookup m (rpByModule plan) >>= Map.lookup (NsValue, old)
+        newNameOf old = fromMaybe old (planned >>= Map.lookup (NsValue, old))
+        finalLabel ns new =
+          noLocA (FieldOcc noExtField (noLocA (mkRdrUnqual (mkOccName ns new))))
 
     varPatRhs old = noLocA (VarPat noExtField (noLocA (mkRdrUnqual (mkVarOcc old))))
     varExprRhs old = noLocA (HsVar noExtField (noLocA (mkRdrUnqual (mkVarOcc old))))

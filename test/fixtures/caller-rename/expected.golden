@@ -1,0 +1,50 @@
+{-# LANGUAGE DisambiguateRecordFields #-}
+
+module Main (
+        main
+    ) where
+
+-- ### Mod
+
+data BoxQ = MkBoxQ {contentQ :: Int, labelQ :: String}
+
+myFuncQ :: Int -> Int
+myFuncQ = (* 2)
+
+myOtherQ :: Int -> Int -> Int
+myOtherQ = (+)
+
+direct :: Int
+direct = myFuncQ 21
+
+viaBacktick :: Int
+viaBacktick = 1 `myOtherQ` 2
+
+partial :: [Int]
+partial = map myFuncQ [1, 2, 3]
+
+qualifiedCall :: Int
+qualifiedCall = myFuncQ (myOtherQ 1 2)
+
+typeLevel :: BoxQ -> Int
+typeLevel b = contentQ b
+
+inPattern :: BoxQ -> String
+inPattern MkBoxQ {labelQ = l} = l
+
+disambiguated :: BoxQ
+disambiguated = MkBoxQ {contentQ = myFuncQ 5, labelQ = "x"}
+
+inGuardAndWhere :: Int -> Int
+inGuardAndWhere n
+  | myFuncQ n > 10 = helper
+  | otherwise = 0
+  where
+      helper = myOtherQ n (sum [myFuncQ k | k <- [1 .. n]])
+
+main :: IO ()
+main
+  = do print [direct, viaBacktick, qualifiedCall]
+       print (partial <> [typeLevel disambiguated])
+       print (inPattern disambiguated)
+       print (inGuardAndWhere 6)
