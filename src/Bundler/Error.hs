@@ -16,9 +16,6 @@ data BundleError
   | -- | The bundler's own output failed to re-parse. Always a bundler bug;
     -- the second field is the offending output for diagnosis.
     SelfCheckError String String
-  | -- | A file enables CPP and fails to parse without preprocessing, i.e.
-    -- it really uses # directives, which ghc-lib-parser cannot run.
-    CppNotSupported FilePath
   | -- | A local module resolves to files under more than one @--src@ dir.
     DuplicateModule String [FilePath]
   | -- | Local modules import each other in a cycle.
@@ -55,11 +52,6 @@ renderBundleError err = case err of
         "--- generated output ---",
         output
       ]
-  CppNotSupported path ->
-    "error: "
-      <> path
-      <> " enables CPP and does not parse without preprocessing;"
-      <> " the bundler cannot run the C preprocessor"
   DuplicateModule name paths ->
     unlines
       ( ("error: module " <> name <> " is found under more than one --src directory:")

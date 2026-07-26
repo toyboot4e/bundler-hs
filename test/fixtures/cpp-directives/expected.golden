@@ -1,0 +1,15 @@
+{-# LANGUAGE CPP #-}
+
+module Main (
+        main
+    ) where
+
+-- ### Iffy
+
+answerIffy :: Int
+
+answerIffy = 2
+
+main :: IO ()
+
+main = print answerIffy

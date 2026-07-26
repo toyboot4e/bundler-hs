@@ -1,1 +1,0 @@
-error: test/fixtures/cpp-directives/lib/Iffy.hs enables CPP and does not parse without preprocessing; the bundler cannot run the C preprocessor

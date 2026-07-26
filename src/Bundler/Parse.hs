@@ -9,6 +9,7 @@ module Bundler.Parse
 where
 
 import Bundler.Error
+import Control.Exception (SomeException, try)
 import GHC.Data.Bag (bagToList)
 import GHC.Driver.Session (DynFlags, defaultDynFlags, xopt)
 import GHC.Hs (GhcPs, HsModule)
@@ -28,6 +29,13 @@ import GHC.Utils.Outputable qualified as O
 import Language.Haskell.GhclibParserEx.GHC.Driver.Session (parsePragmasIntoDynFlags)
 import Language.Haskell.GhclibParserEx.GHC.Parser (parseFile)
 import Language.Haskell.GhclibParserEx.GHC.Settings.Config (fakeSettings)
+import Language.Preprocessor.Cpphs
+  ( BoolOptions (..),
+    CpphsOptions (..),
+    defaultBoolOptions,
+    defaultCpphsOptions,
+    runCpphs,
+  )
 
 -- | One successfully parsed source file, together with the flags it was
 -- parsed under (needed again for the output self-check) and its raw header
@@ -64,22 +72,42 @@ parseHaskellFile dflags path src = do
     Left err ->
       pure (Left (ParseError path err))
     Right flags ->
-      pure $ case parseFile path flags src of
-        POk _ modl ->
-          Right
-            ParsedFile
-              { pfPath = path,
-                pfModule = modl,
-                pfDynFlags = flags,
-                pfPragmas = extractHeaderPragmas src
-              }
+      case parseFile path flags src of
+        POk _ modl -> pure (Right (mkParsed flags modl src))
         -- A file that merely enables CPP but contains no # directives is
-        -- ordinary Haskell and bundles fine; the parser only chokes on
-        -- actual directives, which ghc-lib-parser cannot preprocess. Name
-        -- the real culprit in that case.
+        -- ordinary Haskell and parses directly. Real directives make the
+        -- raw parse fail; run cpphs and parse the preprocessed result.
         PFailed st
-          | xopt LangExt.Cpp flags -> Left (CppNotSupported path)
-          | otherwise -> Left (ParseError path (renderPsErrors st))
+          | xopt LangExt.Cpp flags -> do
+              preprocessed <- try @SomeException (runCpphs cpphsOptions path src)
+              pure $ case preprocessed of
+                Left err ->
+                  Left (ParseError path ("CPP preprocessing failed: " <> show err))
+                Right src' -> case parseFile path flags src' of
+                  POk _ modl -> Right (mkParsed flags modl src)
+                  PFailed st' -> Left (ParseError path (renderPsErrors st'))
+          | otherwise -> pure (Left (ParseError path (renderPsErrors st)))
+  where
+    -- Header pragmas are taken from the original source: the LANGUAGE
+    -- pragmas must survive into the bundle even when the declarations come
+    -- from the preprocessed text.
+    mkParsed flags modl original =
+      ParsedFile
+        { pfPath = path,
+          pfModule = modl,
+          pfDynFlags = flags,
+          pfPragmas = extractHeaderPragmas original
+        }
+
+-- | cpphs setup for library code: no #line markers in the output (they
+-- would confuse the renamed bundle), and a __GLASGOW_HASKELL__ matching the
+-- grammar ghc-lib-parser implements.
+cpphsOptions :: CpphsOptions
+cpphsOptions =
+  defaultCpphsOptions
+    { defines = [("__GLASGOW_HASKELL__", "912")],
+      boolopts = defaultBoolOptions {locations = False}
+    }
 
 renderPsErrors :: PState -> String
 renderPsErrors st =

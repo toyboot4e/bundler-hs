@@ -44,6 +44,7 @@ library
     , bytestring
     , Cabal-syntax          >=3.12 && <3.17
     , containers
+    , cpphs
     , directory
     , filepath
     , ghc-lib-parser        >=9.12 && <9.13
