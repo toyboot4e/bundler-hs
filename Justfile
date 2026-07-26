@@ -24,6 +24,14 @@ accept:
 run *ARGS:
     cabal run -v0 bundler-hs -- {{ARGS}}
 
+# Format the whole tree (ormolu + nixfmt + cabal-fmt)
+fmt:
+    nix fmt
+
+# What CI runs: format check + sandboxed build with tests
+ci:
+    nix build .#checks.x86_64-linux.formatting .#checks.x86_64-linux.package
+
 # GHCi with the library in scope
 repl:
     cabal repl bundler-hs
