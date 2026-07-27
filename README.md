@@ -32,9 +32,10 @@ $ bundler-hs Main.hs --src path/to/your/library > submission.hs
     *preserve* the input's line-break decisions by design, so
     `--format-cmd 'ormolu --stdin-input-file B.hs'` normalizes spacing
     but keeps the raw layout's shape.
-  - `--minify`: emit the bundle as a pragma block plus one layout-free
-    line (comments dropped, braces/semicolons synthesized from the AST).
-    Not compatible with preserved user-file CPP directives.
+  - `--minify`: emit the bundle as a pragma block plus layout-free lines
+    (comments dropped, braces/semicolons synthesized from the AST).
+    Preserved user-file CPP directives stay on their own lines, with one
+    minified line per CPP-free region.
   - Formatted output is always re-parsed before it reaches stdout.
 
 ## Renaming
