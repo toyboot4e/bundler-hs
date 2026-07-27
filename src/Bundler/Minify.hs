@@ -12,7 +12,7 @@ import GHC.Data.FastString (mkFastString)
 import GHC.Data.StringBuffer (stringToStringBuffer)
 import GHC.Driver.Config.Parser (initParserOpts)
 import GHC.Hs
-import GHC.Parser.Lexer (ParseResult (..), Token, lexTokenStream)
+import GHC.Parser.Lexer (ParseResult (..), Token (..), lexTokenStream)
 import GHC.Types.SrcLoc
   ( GenLocated (..),
     Located,
@@ -28,6 +28,14 @@ import GHC.Types.SrcLoc
 import Language.Haskell.GhclibParserEx.GHC.Driver.Session (parsePragmasIntoDynFlags)
 import Language.Haskell.GhclibParserEx.GHC.Parser (parseFile)
 
+-- | A position in the source, (line, column).
+type Pos = (Int, Int)
+
+-- | One output piece: start position (for ordering and region
+-- assignment), priority at equal positions, text, and end position (used
+-- to preserve token adjacency).
+type Piece = (Pos, Int, String, Pos)
+
 -- | Emit the bundle as a pragma block plus layout-free lines.
 --
 -- Layout cannot be resolved by lexing alone (closing an implicit block at
@@ -35,6 +43,11 @@ import Language.Haskell.GhclibParserEx.GHC.Parser (parseFile)
 -- AST instead: every layout block's item spans are known after parsing,
 -- and @{@ @;@ @}@ are synthesized at those positions, merged by source
 -- position with the real tokens. Comments are dropped.
+--
+-- Tokens that were adjacent in the source stay adjacent in the output:
+-- since GHC 9.0, prefix occurrences of @\@@, @!@, @~@ and @-@ are
+-- disambiguated by whitespace, so @read \@Int@ or a bang pattern would
+-- change meaning if a space were inserted.
 --
 -- Preserved CPP directives (which sit between top-level declarations by
 -- construction) survive: the code is emitted as one line per CPP-free
@@ -77,9 +90,10 @@ minify src = do
     -- preprocessor can therefore never take a brace with it (item
     -- separators travel with their items on purpose). Other blocks are
     -- always within one declaration and thus one region.
+    topBraces :: Maybe (Pos, Pos) -> [Piece]
     topBraces Nothing = []
     topBraces (Just (start@(startLine, _), end@(endLine, _))) =
-      [(openPos, prioOpen, "{"), (closePos, prioClose, "}")]
+      [mark openPos prioOpen "{", mark closePos prioClose "}"]
       where
         openPos = case [d | (d, _) <- directives, d < startLine] of
           [] -> start
@@ -90,31 +104,61 @@ minify src = do
 
     -- One minified line per CPP-free region, directive lines verbatim in
     -- between.
+    regions :: [Piece] -> String
     regions pieces =
       concatMap emit (zip [0 ..] splitRegions)
       where
         splitRegions =
-          [ [text | ((line, _), _, text) <- pieces, regionOf line == i]
+          [ [p | p@((line, _), _, _, _) <- pieces, regionOf line == i]
           | i <- [0 .. length directives]
           ]
         regionOf line = length (takeWhile ((< line) . fst) directives)
-        emit (i, ws) =
+        emit (i, ps) =
           (if i == 0 then "" else snd (directives !! (i - 1)) <> "\n")
-            <> (if null ws then "" else unwords ws <> "\n")
+            <> (if null ps then "" else joinPieces ps <> "\n")
+
+    -- Single space between pieces, except between two tokens that were
+    -- adjacent in the source.
+    joinPieces :: [Piece] -> String
+    joinPieces = go Nothing
+      where
+        go _ [] = ""
+        go prevEnd ((start, prio, text, end) : rest) =
+          sep <> text <> go tokenEnd rest
+          where
+            sep = case prevEnd of
+              Nothing -> ""
+              Just pe
+                | pe == start, prio == prioToken -> ""
+                | otherwise -> " "
+            tokenEnd
+              | prio == prioToken = Just end
+              -- A mark breaks adjacency but must still be followed by a
+              -- space.
+              | otherwise = Just (-1, -1)
 
     -- Real tokens only: virtual layout tokens are replaced by AST-derived
     -- marks, and comments (including pragmas, re-emitted separately) are
-    -- dropped.
-    realToken :: GenLocated SrcSpan Token -> [((Int, Int), Int, String)]
-    realToken (L (RealSrcSpan real _) _)
-      | srcSpanStartLine real == srcSpanEndLine real,
-        srcSpanStartCol real < srcSpanEndCol real,
-        let text = sliceSpan real,
-        not (isComment text) =
-          [((srcSpanStartLine real, srcSpanStartCol real), prioToken, text)]
+    -- dropped by constructor - textual sniffing would also hit legal
+    -- operators like (-->).
+    realToken :: GenLocated SrcSpan Token -> [Piece]
+    realToken (L (RealSrcSpan real _) tok)
+      | not (isCommentTok tok),
+        srcSpanStartLine real == srcSpanEndLine real,
+        srcSpanStartCol real < srcSpanEndCol real =
+          [ ( (srcSpanStartLine real, srcSpanStartCol real),
+              prioToken,
+              sliceSpan real,
+              (srcSpanEndLine real, srcSpanEndCol real)
+            )
+          ]
     realToken _ = []
 
-    isComment text = "--" `isPrefixOf` text || "{-" `isPrefixOf` text
+    isCommentTok tok = case tok of
+      ITlineComment {} -> True
+      ITblockComment {} -> True
+      ITdocComment {} -> True
+      _ -> False
 
     sliceSpan real =
       take (srcSpanEndCol real - srcSpanStartCol real)
@@ -126,7 +170,12 @@ minify src = do
     -- Sort marks and tokens together by position; at equal positions
     -- closes come first, then separators, then opens, then the token
     -- starting there.
-    merge marks toks = sortOn (\(pos, prio, _) -> (pos, prio)) (marks <> toks)
+    merge :: [Piece] -> [Piece] -> [Piece]
+    merge marks toks =
+      sortOn (\(pos, prio, _, _) -> (pos, prio)) (marks <> toks)
+
+mark :: Pos -> Int -> String -> Piece
+mark pos prio text = (pos, prio, text, pos)
 
 prioClose, prioSemi, prioOpen, prioToken :: Int
 prioClose = 0
@@ -140,14 +189,14 @@ prioToken = 3
 -- about preserved CPP regions.
 blockMarks ::
   Located (HsModule GhcPs) ->
-  ([((Int, Int), Int, String)], Maybe ((Int, Int), (Int, Int)))
+  ([Piece], Maybe (Pos, Pos))
 blockMarks lmodl = (concatMap marksFor blocks <> topSemis <> equationSemis, topSpan)
   where
     -- Consecutive equations of one function are a single declaration but
     -- separate items of the enclosing explicit-layout block: each
     -- equation after the first needs its own separator.
     equationSemis =
-      [ (pos, prioSemi, ";")
+      [ mark pos prioSemi ";"
       | FunBind {fun_matches = mg} <-
           universeBi lmodl :: [HsBindLR GhcPs GhcPs],
         let alts = unLoc (mg_alts mg),
@@ -155,11 +204,12 @@ blockMarks lmodl = (concatMap marksFor blocks <> topSemis <> equationSemis, topS
         alt <- drop 1 alts,
         (pos, _) <- realPos (getLocA alt)
       ]
+
     modl = unLoc lmodl
     -- Imports and declarations together form the module's layout block.
     topLevel = map getLocA (hsmodImports modl) <> map getLocA (hsmodDecls modl)
     topItems = sortOn fst (concatMap realPos topLevel)
-    topSemis = [(pos, prioSemi, ";") | (pos, _) <- drop 1 topItems]
+    topSemis = [mark pos prioSemi ";" | (pos, _) <- drop 1 topItems]
     topSpan = case topItems of
       [] -> Nothing
       xs@((start, _) : _) -> Just (start, maximum (map snd xs))
@@ -198,10 +248,35 @@ blockMarks lmodl = (concatMap marksFor blocks <> topSemis <> equationSemis, topS
           [ map getLocA (unLoc ss)
           | RecStmt {recS_stmts = ss} <-
               universeBi lmodl :: [StmtLR GhcPs GhcPs (LHsExpr GhcPs)]
+          ],
+          -- Explicitly bidirectional pattern synonyms: the where block
+          -- holds the builder's equations.
+          [ map getLocA (unLoc (mg_alts mg))
+          | PatSynBind _ (PSB {psb_dir = ExplicitBidirectional mg}) <-
+              universeBi lmodl :: [HsBindLR GhcPs GhcPs]
+          ],
+          -- Arrow notation: command blocks mirror the expression ones but
+          -- live in their own AST types.
+          [ map getLocA stmts
+          | HsCmdDo _ (L _ stmts) <- universeCmds
+          ],
+          [map getLocA (unLoc (mg_alts mg)) | HsCmdCase _ _ mg <- universeCmds],
+          [map getLocA (unLoc (mg_alts mg)) | HsCmdLam _ style mg <- universeCmds, notSingleLam style],
+          [localBindItems b | HsCmdLet _ b _ <- universeCmds],
+          [ localBindItems (grhssLocalBinds g)
+          | g <- universeBi lmodl :: [GRHSs GhcPs (LHsCmd GhcPs)]
+          ],
+          [ localBindItems b
+          | LetStmt _ b <- universeBi lmodl :: [StmtLR GhcPs GhcPs (LHsCmd GhcPs)]
+          ],
+          [ map getLocA (unLoc ss)
+          | RecStmt {recS_stmts = ss} <-
+              universeBi lmodl :: [StmtLR GhcPs GhcPs (LHsCmd GhcPs)]
           ]
         ]
 
     universeExprs = universeBi lmodl :: [HsExpr GhcPs]
+    universeCmds = universeBi lmodl :: [HsCmd GhcPs]
 
     notSingleLam LamSingle = False
     notSingleLam _ = True
@@ -236,10 +311,11 @@ blockMarks lmodl = (concatMap marksFor blocks <> topSemis <> equationSemis, topS
     marksFor items = case sortOn fst (concatMap realPos items) of
       [] -> []
       spans@((start, _) : _) ->
-        ((start, prioOpen, "{"))
-          : [(pos, prioSemi, ";") | (pos, _) <- drop 1 spans]
-            <> [(maximum (map snd spans), prioClose, "}")]
+        mark start prioOpen "{"
+          : [mark pos prioSemi ";" | (pos, _) <- drop 1 spans]
+            <> [mark (maximum (map snd spans)) prioClose "}"]
 
+    realPos :: SrcSpan -> [(Pos, Pos)]
     realPos sp = case sp of
       RealSrcSpan real _ ->
         [ ( (srcSpanStartLine real, srcSpanStartCol real),
