@@ -1,0 +1,4 @@
+cabal-version: 3.0
+name: fixture
+version: 0
+library

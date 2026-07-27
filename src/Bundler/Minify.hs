@@ -5,6 +5,7 @@ where
 
 import Bundler.Error
 import Bundler.Parse (baseDynFlags)
+import Data.Foldable (toList)
 import Data.Generics.Uniplate.DataOnly (universeBi)
 import Data.List (isPrefixOf, sortOn)
 import GHC.Data.FastString (mkFastString)
@@ -140,8 +141,20 @@ prioToken = 3
 blockMarks ::
   Located (HsModule GhcPs) ->
   ([((Int, Int), Int, String)], Maybe ((Int, Int), (Int, Int)))
-blockMarks lmodl = (concatMap marksFor blocks <> topSemis, topSpan)
+blockMarks lmodl = (concatMap marksFor blocks <> topSemis <> equationSemis, topSpan)
   where
+    -- Consecutive equations of one function are a single declaration but
+    -- separate items of the enclosing explicit-layout block: each
+    -- equation after the first needs its own separator.
+    equationSemis =
+      [ (pos, prioSemi, ";")
+      | FunBind {fun_matches = mg} <-
+          universeBi lmodl :: [HsBindLR GhcPs GhcPs],
+        let alts = unLoc (mg_alts mg),
+        length alts > 1,
+        alt <- drop 1 alts,
+        (pos, _) <- realPos (getLocA alt)
+      ]
     modl = unLoc lmodl
     -- Imports and declarations together form the module's layout block.
     topLevel = map getLocA (hsmodImports modl) <> map getLocA (hsmodDecls modl)
@@ -169,7 +182,23 @@ blockMarks lmodl = (concatMap marksFor blocks <> topSemis, topSpan)
           | g <- universeBi lmodl :: [GRHSs GhcPs (LHsExpr GhcPs)]
           ],
           [instItems i | i <- universeBi lmodl :: [ClsInstDecl GhcPs]],
-          [classItems c | c@(ClassDecl {}) <- universeBi lmodl :: [TyClDecl GhcPs]]
+          [classItems c | c@(ClassDecl {}) <- universeBi lmodl :: [TyClDecl GhcPs]],
+          -- GADT-syntax constructor lists (covers data family instances
+          -- too, since all HsDataDefn nodes are visited).
+          [ map getLocA (toList (dd_cons defn))
+          | defn <- universeBi lmodl :: [HsDataDefn GhcPs],
+            isGadtDefn defn
+          ],
+          -- Closed type family equations.
+          [ map getLocA eqns
+          | FamilyDecl {fdInfo = ClosedTypeFamily (Just eqns)} <-
+              universeBi lmodl :: [FamilyDecl GhcPs]
+          ],
+          -- rec blocks in (m)do.
+          [ map getLocA (unLoc ss)
+          | RecStmt {recS_stmts = ss} <-
+              universeBi lmodl :: [StmtLR GhcPs GhcPs (LHsExpr GhcPs)]
+          ]
         ]
 
     universeExprs = universeBi lmodl :: [HsExpr GhcPs]
@@ -182,6 +211,11 @@ blockMarks lmodl = (concatMap marksFor blocks <> topSemis, topSpan)
       DoExpr _ -> True
       MDoExpr _ -> True
       _ -> False
+
+    isGadtDefn defn = any (isGadtCon . unLoc) (toList (dd_cons defn))
+      where
+        isGadtCon (ConDeclGADT {}) = True
+        isGadtCon _ = False
 
     localBindItems (HsValBinds _ (ValBinds _ binds sigs)) =
       map getLocA binds <> map getLocA sigs
@@ -197,6 +231,7 @@ blockMarks lmodl = (concatMap marksFor blocks <> topSemis, topSpan)
       map getLocA (tcdSigs c)
         <> map getLocA (tcdMeths c)
         <> map getLocA (tcdATs c)
+        <> map getLocA (tcdATDefs c)
 
     marksFor items = case sortOn fst (concatMap realPos items) of
       [] -> []
