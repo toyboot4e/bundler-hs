@@ -7,6 +7,7 @@ import Bundler.Cabal
 import Bundler.Config
 import Bundler.Discovery
 import Bundler.Error
+import Bundler.Format
 import Bundler.Parse
 import Bundler.Rename.Apply
 import Bundler.Rename.Plan
@@ -93,18 +94,31 @@ bundle cfg = runExceptT $ do
           <> unlines (map ("  " <>) kept)
           <> "these may make names ambiguous in the bundle"
   checked <- ExceptT (selfCheck out)
-  case cfgFormatCmd cfg of
-    Nothing -> pure checked
-    Just cmd -> do
+  case cfgFormat cfg of
+    FormatNone -> pure checked
+    FormatBuiltin -> case formatBuiltin checked of
+      Right formatted -> reparseAs "hindent" formatted
+      -- The default formatter must never make bundling fail: warn and
+      -- fall back to the raw (already self-checked) output.
+      Left err -> do
+        liftIO . hPutStrLn stderr $
+          "warning: builtin hindent could not format the bundle"
+            <> " (emitting unformatted output): "
+            <> err
+        pure checked
+    FormatCmd cmd -> do
       formatted <- ExceptT (runFormatter cmd checked)
-      -- The formatter is arbitrary; make sure it returned Haskell.
+      reparseAs cmd formatted
+  where
+    -- Formatters are arbitrary; make sure the result is still Haskell.
+    reparseAs cmd formatted = do
       reparsed <- liftIO (parseHaskellFile baseDynFlags "<formatted output>" formatted)
       case reparsed of
         Left err ->
           ExceptT . pure . Left $
             FormatCmdError cmd ("output no longer parses:\n" <> renderBundleError err)
         Right _ -> pure formatted
-  where
+
     dirDefaults :: FilePath -> ExceptT BundleError IO (FilePath, DynFlags, ProjectDefaults)
     dirDefaults dir = do
       defs <- ExceptT (findProjectDefaults dir)

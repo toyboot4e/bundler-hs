@@ -1,13 +1,15 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE NamedFieldPuns #-}
 
-module Main (
-        main
-    ) where
+module Main
+  ( main
+  ) where
 
 -- ### Rec
-
-data PointRec = PointRec {pxRec :: Int, pyRec :: Int}
+data PointRec = PointRec
+  { pxRec :: Int
+  , pyRec :: Int
+  }
 
 normRec :: PointRec -> Int
 normRec PointRec {pyRec = py, pxRec = px} = px * px + py * py
@@ -22,17 +24,16 @@ viaWildcards :: PointRec -> Int
 viaWildcards PointRec {pyRec = py, pxRec = px} = px + py
 
 build :: Int -> PointRec
-build n
-  = let
-      px = n
+build n =
+  let px = n
       py = n * 2
-    in PointRec {pyRec = py, pxRec = px}
+   in PointRec {pyRec = py, pxRec = px}
 
 main :: IO ()
-main
-  = do let p = PointRec {pxRec = 3, pyRec = 4}
-       print (normRec p)
-       print (normRec (shift p))
-       print (viaPuns p)
-       print (viaWildcards p)
-       print (normRec (build 5))
+main = do
+  let p = PointRec {pxRec = 3, pyRec = 4}
+  print (normRec p)
+  print (normRec (shift p))
+  print (viaPuns p)
+  print (viaWildcards p)
+  print (normRec (build 5))

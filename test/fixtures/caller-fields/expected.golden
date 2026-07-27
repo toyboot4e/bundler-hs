@@ -1,12 +1,14 @@
 {-# LANGUAGE DisambiguateRecordFields #-}
 
-module Main (
-        main
-    ) where
+module Main
+  ( main
+  ) where
 
 -- ### Mod
-
-data BoxQ = MkBoxQ {contentQ :: Int, labelQ :: String}
+data BoxQ = MkBoxQ
+  { contentQ :: Int
+  , labelQ :: String
+  }
 
 myFuncQ :: Int -> Int
 myFuncQ = (* 2)
@@ -21,6 +23,6 @@ grab :: BoxQ -> Int
 grab MkBoxQ {contentQ = c} = c
 
 main :: IO ()
-main
-  = do print (grab box)
-       print (labelQ box)
+main = do
+  print (grab box)
+  print (labelQ box)

@@ -1,5 +1,6 @@
 module Bundler.Config
   ( Config (..),
+    FormatMode (..),
     configParserInfo,
     parseConfigFromArgs,
   )
@@ -18,11 +19,21 @@ data Config = Config
     -- | Optional external command implementing the rename protocol
     -- (@--rename-cmd CMD@).
     cfgRenameCmd :: Maybe String,
-    -- | Optional formatter the finished bundle is piped through
-    -- (@--format-cmd CMD@, e.g.
-    -- @--format-cmd \'ormolu --stdin-input-file Bundle.hs\'@).
-    cfgFormatCmd :: Maybe String
+    -- | How the finished bundle is formatted before printing.
+    cfgFormat :: FormatMode
   }
+  deriving (Show)
+
+-- | What happens to the bundle after assembly.
+data FormatMode
+  = -- | Builtin hindent (the default): every line break is re-decided, so
+    -- the GHC pretty-printer's layout never leaks into the output.
+    FormatBuiltin
+  | -- | Pipe through an external command (stdin to stdout), e.g.
+    -- @--format-cmd \'ormolu --stdin-input-file Bundle.hs\'@.
+    FormatCmd String
+  | -- | Emit the raw pretty-printer output (@--no-format@).
+    FormatNone
   deriving (Show)
 
 configParser :: Parser Config
@@ -46,14 +57,24 @@ configParser =
               <> help "External command deciding renamed names (TSV protocol on stdin/stdout)"
           )
       )
-    <*> optional
-      ( strOption
-          ( long "format-cmd"
-              <> metavar "CMD"
-              <> help
-                "Shell command to pipe the bundle through (stdin to stdout), e.g. 'ormolu --stdin-input-file Bundle.hs'"
-          )
+    <*> formatMode
+
+formatMode :: Parser FormatMode
+formatMode =
+  ( FormatCmd
+      <$> strOption
+        ( long "format-cmd"
+            <> metavar "CMD"
+            <> help
+              "Format with a shell command (stdin to stdout) instead of the builtin hindent, e.g. 'ormolu --stdin-input-file Bundle.hs'"
+        )
+  )
+    <|> flag'
+      FormatNone
+      ( long "no-format"
+          <> help "Emit the raw pretty-printer output without formatting"
       )
+    <|> pure FormatBuiltin
 
 configParserInfo :: ParserInfo Config
 configParserInfo =

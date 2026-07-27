@@ -1,28 +1,33 @@
-module Main (
-        main
-    ) where
+module Main
+  ( main
+  ) where
 
-import qualified Data.Map.Strict as MyMap
 import qualified Data.Char
+import Data.Char
 import qualified Data.List
+import qualified Data.Map.Strict as MyMap
 import qualified Data.Map.Strict
 import qualified Data.Ord
-import Data.Char
 
 -- ### CountB
-
 rankedCountB :: [Int] -> [(Int, String)]
-rankedCountB xs
-  = [(k, map toUpper v) |
-       (k, v) <- Data.Map.Strict.toList (Data.Map.Strict.fromList (zip (Data.List.sortBy (Data.Ord.comparing negate) xs) ["a", "b", "c"]))]
+rankedCountB xs =
+  [ (k, map toUpper v)
+  | (k, v) <-
+      Data.Map.Strict.toList
+        (Data.Map.Strict.fromList
+           (zip
+              (Data.List.sortBy (Data.Ord.comparing negate) xs)
+              ["a", "b", "c"]))
+  ]
 
 -- ### CountA
-
 countUpCountA :: [Int] -> [(Int, Int)]
-countUpCountA xs = Data.Map.Strict.toList (Data.Map.Strict.fromListWith (+) [(x, 1) | x <- xs])
+countUpCountA xs =
+  Data.Map.Strict.toList (Data.Map.Strict.fromListWith (+) [(x, 1) | x <- xs])
 
 main :: IO ()
-main
-  = do print (countUpCountA [1, 2, 2, 3])
-       print (rankedCountB [3, 1, 2])
-       print (MyMap.singleton (1 :: Int) "user alias survives")
+main = do
+  print (countUpCountA [1, 2, 2, 3])
+  print (rankedCountB [3, 1, 2])
+  print (MyMap.singleton (1 :: Int) "user alias survives")

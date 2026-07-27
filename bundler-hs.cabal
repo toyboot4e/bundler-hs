@@ -32,6 +32,7 @@ library
     Bundler.Config
     Bundler.Discovery
     Bundler.Error
+    Bundler.Format
     Bundler.Parse
     Bundler.Rename.Apply
     Bundler.Rename.Plan
@@ -49,6 +50,7 @@ library
     , filepath
     , ghc-lib-parser        >=9.12 && <9.13
     , ghc-lib-parser-ex     >=9.12 && <9.13
+    , hindent               >=6.3  && <6.4
     , optparse-applicative
     , syb
     , text

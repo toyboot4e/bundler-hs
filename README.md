@@ -20,15 +20,16 @@ $ bundler-hs Main.hs --src path/to/your/library > submission.hs
   An import `A.B.C` is expanded iff `DIR/A/B/C.hs` exists; anything else
   stays a normal import.
 - Output goes to stdout; all errors go to stderr with a non-zero exit.
-- `--format-cmd CMD`: pipe the finished bundle through a formatter
-  (stdin to stdout). CMD is a full shell command, so formatter flags go
-  inside it. The formatted result is re-parsed before it reaches stdout.
-  - For fully restyled output use `--format-cmd hindent`: it re-decides
-    every line break.
-  - ormolu/fourmolu *preserve* the input's line-break decisions by design,
-    so they keep the GHC pretty-printer's layout (e.g. `main =` / `do` on
-    separate lines): `--format-cmd 'ormolu --stdin-input-file Bundle.hs'`
-    normalizes spacing but not the overall shape.
+- Output is formatted with the builtin hindent by default (it re-decides
+  every line break, so the pretty-printer's layout never shows). If
+  formatting ever fails, the unformatted bundle is emitted with a warning.
+  - `--no-format`: emit the raw pretty-printer output.
+  - `--format-cmd CMD`: use an external formatter instead (stdin to
+    stdout; CMD is a full shell command). Note that ormolu/fourmolu
+    *preserve* the input's line-break decisions by design, so
+    `--format-cmd 'ormolu --stdin-input-file B.hs'` normalizes spacing
+    but keeps the raw layout's shape.
+  - Formatted output is always re-parsed before it reaches stdout.
 
 ## Renaming
 

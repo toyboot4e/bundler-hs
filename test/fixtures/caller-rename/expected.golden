@@ -1,12 +1,14 @@
 {-# LANGUAGE DisambiguateRecordFields #-}
 
-module Main (
-        main
-    ) where
+module Main
+  ( main
+  ) where
 
 -- ### Mod
-
-data BoxQ = MkBoxQ {contentQ :: Int, labelQ :: String}
+data BoxQ = MkBoxQ
+  { contentQ :: Int
+  , labelQ :: String
+  }
 
 myFuncQ :: Int -> Int
 myFuncQ = (* 2)
@@ -40,11 +42,11 @@ inGuardAndWhere n
   | myFuncQ n > 10 = helper
   | otherwise = 0
   where
-      helper = myOtherQ n (sum [myFuncQ k | k <- [1 .. n]])
+    helper = myOtherQ n (sum [myFuncQ k | k <- [1 .. n]])
 
 main :: IO ()
-main
-  = do print [direct, viaBacktick, qualifiedCall]
-       print (partial <> [typeLevel disambiguated])
-       print (inPattern disambiguated)
-       print (inGuardAndWhere 6)
+main = do
+  print [direct, viaBacktick, qualifiedCall]
+  print (partial <> [typeLevel disambiguated])
+  print (inPattern disambiguated)
+  print (inGuardAndWhere 6)

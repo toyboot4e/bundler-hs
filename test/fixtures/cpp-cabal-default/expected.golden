@@ -1,11 +1,10 @@
 {-# LANGUAGE CPP #-}
 
-module Main (
-        main
-    ) where
+module Main
+  ( main
+  ) where
 
 -- ### Flagged
-
 valueFlagged :: Int
 valueFlagged = 2
 

@@ -1,27 +1,20 @@
 {-# LANGUAGE CPP #-}
 
-module Main (
-        main
-    ) where
+module Main
+  ( main
+  ) where
 
 -- ### Alg
-
 incAlg :: Int -> Int
 incAlg = (+ 1)
-
 #ifdef LOCAL
-
 debug :: Show a => a -> IO ()
 debug = print
-
 #else
-
 debug :: Show a => a -> IO ()
 debug _ = pure ()
-
 #endif
-
 main :: IO ()
-main
-  = do debug (incAlg 1)
-       print (incAlg 41)
+main = do
+  debug (incAlg 1)
+  print (incAlg 41)

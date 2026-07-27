@@ -1,22 +1,19 @@
 {-# LANGUAGE CPP #-}
 
-module Main (
-        main
-    ) where
+module Main
+  ( main
+  ) where
 
 -- ### Alg
-
 incAlg :: Int -> Int
 incAlg = (+ 1)
-
 #ifdef LOCAL
 #define DBG(x) (print (x))
 #else
 #define DBG(x) (pure ())
 #endif
-
 main :: IO ()
-main
-  = do n <- readLn :: IO Int
-       DBG (incAlg n)
-       print (incAlg n)
+main = do
+  n <- readLn :: IO Int
+  DBG (incAlg n)
+  print (incAlg n)

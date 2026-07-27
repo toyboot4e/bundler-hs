@@ -1,11 +1,10 @@
 {-# LANGUAGE CPP #-}
 
-module Main (
-        main
-    ) where
+module Main
+  ( main
+  ) where
 
 -- ### Ver
-
 specVer :: String
 specVer = "modern"
 

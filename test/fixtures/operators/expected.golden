@@ -1,11 +1,9 @@
-module Main (
-        main
-    ) where
+module Main
+  ( main
+  ) where
 
 -- ### Vec
-
 infixl 6 <+>
-
 type V2V = (Int, Int)
 
 originV :: V2V
@@ -15,14 +13,13 @@ originV = (0, 0)
 (a, b) <+> (c, d) = (a + c, b + d)
 
 scaleV :: Int -> V2V -> V2V
-scaleV k v
-  = (k, k) `mul` v
+scaleV k v = (k, k) `mul` v
   where
-      mul (a, b) (c, d) = (a * c, b * d)
+    mul (a, b) (c, d) = (a * c, b * d)
 
 main :: IO ()
-main
-  = do print ((1, 2) <+> (3, 4))
-       print ((1, 2) <+> originV)
-       print (scaleV 2 (3, 4))
-       print (foldr (<+>) originV [(1, 1), (2, 2)])
+main = do
+  print ((1, 2) <+> (3, 4))
+  print ((1, 2) <+> originV)
+  print (scaleV 2 (3, 4))
+  print (foldr (<+>) originV [(1, 1), (2, 2)])

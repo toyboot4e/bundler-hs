@@ -1,11 +1,10 @@
 {-# LANGUAGE CPP #-}
 
-module Main (
-        main
-    ) where
+module Main
+  ( main
+  ) where
 
 -- ### Plain
-
 answerPlain :: Int
 answerPlain = 41
 

@@ -1,10 +1,12 @@
-module Main (
-        main
-    ) where
+module Main
+  ( main
+  ) where
 
 -- ### Util
-
-data PairUtil = MkPairUtil {leftUtil :: Int, rightUtil :: Int}
+data PairUtil = MkPairUtil
+  { leftUtil :: Int
+  , rightUtil :: Int
+  }
 
 incUtil :: Int -> Int
 incUtil = (+ 1)
@@ -16,7 +18,6 @@ privateUtil :: Int
 privateUtil = 0
 
 -- ### Extra
-
 twiceExtra :: Int -> Int
 twiceExtra x = x * 2
 
@@ -24,9 +25,9 @@ unusedExtra :: Int
 unusedExtra = 99
 
 main :: IO ()
-main
-  = do print (incUtil 41)
-       print (clampUtil 0 10 99)
-       print (twiceExtra 21)
-       let p = MkPairUtil {leftUtil = 1, rightUtil = 2}
-       print (leftUtil p + rightUtil p)
+main = do
+  print (incUtil 41)
+  print (clampUtil 0 10 99)
+  print (twiceExtra 21)
+  let p = MkPairUtil {leftUtil = 1, rightUtil = 2}
+  print (leftUtil p + rightUtil p)
