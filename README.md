@@ -22,9 +22,13 @@ $ bundler-hs Main.hs --src path/to/your/library > submission.hs
 - Output goes to stdout; all errors go to stderr with a non-zero exit.
 - `--format-cmd CMD`: pipe the finished bundle through a formatter
   (stdin to stdout). CMD is a full shell command, so formatter flags go
-  inside it, e.g. `--format-cmd 'ormolu --stdin-input-file Bundle.hs'`
-  (ormolu requires that flag when reading stdin). The formatted result is
-  re-parsed before it reaches stdout.
+  inside it. The formatted result is re-parsed before it reaches stdout.
+  - For fully restyled output use `--format-cmd hindent`: it re-decides
+    every line break.
+  - ormolu/fourmolu *preserve* the input's line-break decisions by design,
+    so they keep the GHC pretty-printer's layout (e.g. `main =` / `do` on
+    separate lines): `--format-cmd 'ormolu --stdin-input-file Bundle.hs'`
+    normalizes spacing but not the overall shape.
 
 ## Renaming
 
