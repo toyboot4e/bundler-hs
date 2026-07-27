@@ -33,6 +33,7 @@ library
     Bundler.Discovery
     Bundler.Error
     Bundler.Format
+    Bundler.Minify
     Bundler.Parse
     Bundler.Rename.Apply
     Bundler.Rename.Plan

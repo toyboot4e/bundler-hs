@@ -34,6 +34,8 @@ data FormatMode
     FormatCmd String
   | -- | Emit the raw pretty-printer output (@--no-format@).
     FormatNone
+  | -- | Emit a pragma block plus one layout-free line (@--minify@).
+    FormatMinify
   deriving (Show)
 
 configParser :: Parser Config
@@ -73,6 +75,11 @@ formatMode =
       FormatNone
       ( long "no-format"
           <> help "Emit the raw pretty-printer output without formatting"
+      )
+    <|> flag'
+      FormatMinify
+      ( long "minify"
+          <> help "Emit the bundle as a pragma block plus one layout-free line"
       )
     <|> pure FormatBuiltin
 

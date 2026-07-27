@@ -8,6 +8,7 @@ import Bundler.Config
 import Bundler.Discovery
 import Bundler.Error
 import Bundler.Format
+import Bundler.Minify
 import Bundler.Parse
 import Bundler.Rename.Apply
 import Bundler.Rename.Plan
@@ -109,6 +110,9 @@ bundle cfg = runExceptT $ do
     FormatCmd cmd -> do
       formatted <- ExceptT (runFormatter cmd checked)
       reparseAs cmd formatted
+    FormatMinify -> do
+      minified <- ExceptT (minify checked)
+      reparseAs "--minify" minified
   where
     -- Formatters are arbitrary; make sure the result is still Haskell.
     reparseAs cmd formatted = do
