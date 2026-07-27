@@ -4,9 +4,9 @@ module Main
   ( main
   ) where
 
+main :: IO ()
+main = print answerIffy
+
 -- ### Iffy
 answerIffy :: Int
 answerIffy = 2
-
-main :: IO ()
-main = print answerIffy

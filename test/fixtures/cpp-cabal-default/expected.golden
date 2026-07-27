@@ -4,9 +4,9 @@ module Main
   ( main
   ) where
 
+main :: IO ()
+main = print valueFlagged
+
 -- ### Flagged
 valueFlagged :: Int
 valueFlagged = 2
-
-main :: IO ()
-main = print valueFlagged

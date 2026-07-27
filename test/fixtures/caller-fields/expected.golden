@@ -4,6 +4,17 @@ module Main
   ( main
   ) where
 
+box :: BoxQ
+box = MkBoxQ {contentQ = 41, labelQ = "x"}
+
+grab :: BoxQ -> Int
+grab MkBoxQ {contentQ = c} = c
+
+main :: IO ()
+main = do
+  print (grab box)
+  print (labelQ box)
+
 -- ### Mod
 data BoxQ = MkBoxQ
   { contentQ :: Int
@@ -15,14 +26,3 @@ myFuncQ = (* 2)
 
 myOtherQ :: Int -> Int -> Int
 myOtherQ = (+)
-
-box :: BoxQ
-box = MkBoxQ {contentQ = 41, labelQ = "x"}
-
-grab :: BoxQ -> Int
-grab MkBoxQ {contentQ = c} = c
-
-main :: IO ()
-main = do
-  print (grab box)
-  print (labelQ box)

@@ -2,6 +2,14 @@ module Main
   ( main
   ) where
 
+main :: IO ()
+main = do
+  print (incUtil 41)
+  print (clampUtil 0 10 99)
+  print (twiceExtra 21)
+  let p = MkPairUtil {leftUtil = 1, rightUtil = 2}
+  print (leftUtil p + rightUtil p)
+
 -- ### Util
 data PairUtil = MkPairUtil
   { leftUtil :: Int
@@ -23,11 +31,3 @@ twiceExtra x = x * 2
 
 unusedExtra :: Int
 unusedExtra = 99
-
-main :: IO ()
-main = do
-  print (incUtil 41)
-  print (clampUtil 0 10 99)
-  print (twiceExtra 21)
-  let p = MkPairUtil {leftUtil = 1, rightUtil = 2}
-  print (leftUtil p + rightUtil p)

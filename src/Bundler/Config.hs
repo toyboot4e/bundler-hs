@@ -1,5 +1,6 @@
 module Bundler.Config
   ( Config (..),
+    EmbedPosition (..),
     FormatMode (..),
     configParserInfo,
     parseConfigFromArgs,
@@ -20,8 +21,21 @@ data Config = Config
     -- (@--rename-cmd CMD@).
     cfgRenameCmd :: Maybe String,
     -- | How the finished bundle is formatted before printing.
-    cfgFormat :: FormatMode
+    cfgFormat :: FormatMode,
+    -- | Where the expanded library code goes relative to the user's own
+    -- declarations.
+    cfgEmbedPosition :: EmbedPosition
   }
+  deriving (Show)
+
+-- | Placement of expanded library modules in the bundle. Haskell is
+-- order-independent at the top level, so this is purely cosmetic.
+data EmbedPosition
+  = -- | Library code after the user's declarations (the default: your own
+    -- code stays at the top of the submission).
+    EmbedAfter
+  | -- | Library code before the user's declarations, dependency-first.
+    EmbedBefore
   deriving (Show)
 
 -- | What happens to the bundle after assembly.
@@ -60,6 +74,19 @@ configParser =
           )
       )
     <*> formatMode
+    <*> option
+      readEmbedPosition
+      ( long "embed-position"
+          <> metavar "after|before"
+          <> value EmbedAfter
+          <> help "Where expanded library code goes relative to your own (default: after)"
+      )
+
+readEmbedPosition :: ReadM EmbedPosition
+readEmbedPosition = eitherReader $ \s -> case s of
+  "after" -> Right EmbedAfter
+  "before" -> Right EmbedBefore
+  _ -> Left ("expected 'after' or 'before', got " <> show s)
 
 formatMode :: Parser FormatMode
 formatMode =

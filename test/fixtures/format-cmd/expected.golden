@@ -3,10 +3,10 @@ module Main (
         main
     ) where
 
+main :: IO ()
+main = print (incAlg 41)
+
 -- ### Alg
 
 incAlg :: Int -> Int
 incAlg = (+ 1)
-
-main :: IO ()
-main = print (incAlg 41)

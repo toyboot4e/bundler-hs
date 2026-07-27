@@ -20,6 +20,9 @@ $ bundler-hs Main.hs --src path/to/your/library > submission.hs
   An import `A.B.C` is expanded iff `DIR/A/B/C.hs` exists; anything else
   stays a normal import.
 - Output goes to stdout; all errors go to stderr with a non-zero exit.
+- `--embed-position after|before`: where expanded library code goes
+  relative to your own declarations (default `after`: your code stays at
+  the top of the submission).
 - Output is formatted with the builtin hindent by default (it re-decides
   every line break, so the pretty-printer's layout never shows). If
   formatting ever fails, the unformatted bundle is emitted with a warning.

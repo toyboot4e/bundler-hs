@@ -81,6 +81,7 @@ bundle cfg = runExceptT $ do
           <> keptOpen
       out =
         assemble
+          (cfgEmbedPosition cfg)
           userDefaults
           [defs | (_, _, defs) <- srcDirs]
           userFile
@@ -154,6 +155,7 @@ declsOf pf = hsmodDecls (unLoc (pfModule pf))
 -- declarations of every local module in dependency order and finally the
 -- user's own.
 assemble ::
+  EmbedPosition ->
   ProjectDefaults ->
   [ProjectDefaults] ->
   ParsedFile ->
@@ -161,7 +163,7 @@ assemble ::
   [GHC.Hs.LHsDecl GHC.Hs.GhcPs] ->
   [(LocalModule, [GHC.Hs.LHsDecl GHC.Hs.GhcPs])] ->
   String
-assemble userDefaults libDefaults userFile extImportLines userDecls locals =
+assemble embedPos userDefaults libDefaults userFile extImportLines userDecls locals =
   intercalate "\n\n" (filter (not . null) chunks) <> "\n"
   where
     chunks =
@@ -169,8 +171,10 @@ assemble userDefaults libDefaults userFile extImportLines userDecls locals =
         fromMaybe "" (renderModuleHeader (pfModule userFile)),
         intercalate "\n" imports
       ]
-        <> map localChunk locals
-        <> [intercalate "\n\n" userPieces]
+        <> bodyChunks
+    bodyChunks = case embedPos of
+      EmbedAfter -> [intercalate "\n\n" userPieces] <> map localChunk locals
+      EmbedBefore -> map localChunk locals <> [intercalate "\n\n" userPieces]
 
     -- The user's declarations, with any preserved CPP directive lines
     -- re-emitted at the declaration boundaries they came from. A signature

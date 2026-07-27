@@ -2,16 +2,6 @@ module Main
   ( main
   ) where
 
--- ### Shadow
-fShadow :: Int -> Int
-fShadow = (+ 100)
-
-gShadow :: Int -> Int
-gShadow x = inner (\f -> f x)
-  where
-    inner k = k step
-    step y = fShadow y - 100
-
 lam :: (Int -> Int) -> Int
 lam = \f -> f (gShadow 1)
 
@@ -59,3 +49,13 @@ main = do
     , sum comprehension
     , patternGuard (Just 1)
     ]
+
+-- ### Shadow
+fShadow :: Int -> Int
+fShadow = (+ 100)
+
+gShadow :: Int -> Int
+gShadow x = inner (\f -> f x)
+  where
+    inner k = k step
+    step y = fShadow y - 100

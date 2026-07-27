@@ -5,15 +5,6 @@ module Main
   ( main
   ) where
 
--- ### Rec
-data PointRec = PointRec
-  { pxRec :: Int
-  , pyRec :: Int
-  }
-
-normRec :: PointRec -> Int
-normRec PointRec {pyRec = py, pxRec = px} = px * px + py * py
-
 shift :: PointRec -> PointRec
 shift p = p {pxRec = pxRec p + 1}
 
@@ -37,3 +28,12 @@ main = do
   print (viaPuns p)
   print (viaWildcards p)
   print (normRec (build 5))
+
+-- ### Rec
+data PointRec = PointRec
+  { pxRec :: Int
+  , pyRec :: Int
+  }
+
+normRec :: PointRec -> Int
+normRec PointRec {pyRec = py, pxRec = px} = px * px + py * py

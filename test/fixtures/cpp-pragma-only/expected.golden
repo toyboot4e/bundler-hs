@@ -4,9 +4,9 @@ module Main
   ( main
   ) where
 
+main :: IO ()
+main = print (answerPlain + 1)
+
 -- ### Plain
 answerPlain :: Int
 answerPlain = 41
-
-main :: IO ()
-main = print (answerPlain + 1)

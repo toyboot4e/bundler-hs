@@ -4,18 +4,6 @@ module Main
   ( main
   ) where
 
--- ### Mod
-data BoxQ = MkBoxQ
-  { contentQ :: Int
-  , labelQ :: String
-  }
-
-myFuncQ :: Int -> Int
-myFuncQ = (* 2)
-
-myOtherQ :: Int -> Int -> Int
-myOtherQ = (+)
-
 direct :: Int
 direct = myFuncQ 21
 
@@ -50,3 +38,15 @@ main = do
   print (partial <> [typeLevel disambiguated])
   print (inPattern disambiguated)
   print (inGuardAndWhere 6)
+
+-- ### Mod
+data BoxQ = MkBoxQ
+  { contentQ :: Int
+  , labelQ :: String
+  }
+
+myFuncQ :: Int -> Int
+myFuncQ = (* 2)
+
+myOtherQ :: Int -> Int -> Int
+myOtherQ = (+)

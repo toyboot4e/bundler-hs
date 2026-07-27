@@ -4,6 +4,12 @@ module Main
 
 import qualified Data.Map.Strict as DataMapStrict
 
+main :: IO ()
+main = do
+  print (f_A 1)
+  print (g_B 2)
+  print (count_C "abracadabra")
+
 -- ### OpsB
 (<.+>) :: Int -> Int -> Int
 (<.+>) = (*)
@@ -29,9 +35,3 @@ count_C :: String -> Tally_C
 count_C s =
   let m = DataMapStrict.fromListWith (+) [(c, 1 :: Int) | c <- s]
    in Tally_C {total_C = length s, distinct_C = DataMapStrict.size m}
-
-main :: IO ()
-main = do
-  print (f_A 1)
-  print (g_B 2)
-  print (count_C "abracadabra")
