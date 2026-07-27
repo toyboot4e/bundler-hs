@@ -48,7 +48,8 @@ data FormatMode
     FormatCmd String
   | -- | Emit the raw pretty-printer output (@--no-format@).
     FormatNone
-  | -- | Emit a pragma block plus one layout-free line (@--minify@).
+  | -- | Emit a pragma block plus layout-free lines, one per CPP-free
+    -- region (@--minify@).
     FormatMinify
   deriving (Show)
 
@@ -106,7 +107,8 @@ formatMode =
     <|> flag'
       FormatMinify
       ( long "minify"
-          <> help "Emit the bundle as a pragma block plus one layout-free line"
+          <> help
+            "Emit the bundle as a pragma block plus layout-free lines (one per CPP-free region; comments dropped)"
       )
     <|> pure FormatBuiltin
 
