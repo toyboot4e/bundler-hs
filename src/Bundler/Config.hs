@@ -175,7 +175,14 @@ renameCmdProtocol =
   vsep
     ( map
         pretty
-        [ "The --rename-cmd protocol:",
+        [ "Minification:",
+          "  The --minify-* flags are per-section and compose with formatting:",
+          "  minified sections become layout-free lines (comments dropped),",
+          "  everything else keeps its formatted layout. The usual submission",
+          "  setup is --minify-lib: your own code stays readable while the",
+          "  expanded library shrinks. --minify is all sections at once.",
+          "",
+          "The --rename-cmd protocol:",
           "  CMD is started once. For every name, one tab-separated query line is",
           "  written to its stdin and one response line is read from its stdout:",
           "",
