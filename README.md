@@ -36,7 +36,9 @@ $ bundler-hs Main.hs --src path/to/your/library > submission.hs
     (comments dropped, braces/semicolons synthesized from the AST).
     Preserved user-file CPP directives stay on their own lines, with one
     minified line per CPP-free region.
-  - Formatted output is always re-parsed before it reaches stdout.
+  - Formatted output is always re-parsed before it reaches stdout. If a
+    formatter fails, the (valid, unformatted) bundle is saved to a
+    temporary file whose path is printed on stderr.
 
 ## Renaming
 

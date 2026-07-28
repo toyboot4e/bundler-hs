@@ -16,7 +16,7 @@ import Bundler.RenameCmd
 import Bundler.Render
 import Bundler.Symbols
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad.Trans.Except (ExceptT (..), runExceptT)
+import Control.Monad.Trans.Except (ExceptT (..), catchE, runExceptT, throwE)
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Containers.ListUtils (nubOrd)
 import Data.List (intercalate, intersect)
@@ -30,9 +30,10 @@ import GHC.Types.Name.Occurrence (occNameString)
 import GHC.Types.Name.Reader (rdrNameOcc)
 import GHC.Types.SrcLoc (unLoc)
 import Language.Haskell.Syntax.Module.Name (mkModuleName, moduleNameString)
+import System.Directory (getTemporaryDirectory)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory)
-import System.IO (hPutStrLn, readFile', stderr)
+import System.IO (hClose, hPutStr, hPutStrLn, openTempFile, readFile', stderr)
 import System.Process.Typed (byteStringInput, readProcess, setStdin, shell)
 
 -- | Run the whole pipeline, producing the bundled source for stdout.
@@ -96,24 +97,30 @@ bundle cfg = runExceptT $ do
           <> unlines (map ("  " <>) kept)
           <> "these may make names ambiguous in the bundle"
   checked <- ExceptT (selfCheck out)
-  case cfgFormat cfg of
-    FormatNone -> pure checked
-    FormatBuiltin -> case formatBuiltin checked of
-      Right formatted -> reparseAs "hindent" formatted
-      -- The default formatter must never make bundling fail: warn and
-      -- fall back to the raw (already self-checked) output.
-      Left err -> do
-        liftIO . hPutStrLn stderr $
-          "warning: builtin hindent could not format the bundle"
-            <> " (emitting unformatted output): "
-            <> err
-        pure checked
-    FormatCmd cmd -> do
-      formatted <- ExceptT (runFormatter cmd checked)
-      reparseAs cmd formatted
-    FormatMinify -> do
-      minified <- ExceptT (minify checked)
-      reparseAs "--minify" minified
+  let formatStage = case cfgFormat cfg of
+        FormatNone -> pure checked
+        FormatBuiltin -> case formatBuiltin checked of
+          Right formatted -> reparseAs "hindent" formatted
+          -- The default formatter must never make bundling fail: warn and
+          -- fall back to the raw (already self-checked) output.
+          Left err -> do
+            liftIO . hPutStrLn stderr $
+              "warning: builtin hindent could not format the bundle"
+                <> " (emitting unformatted output): "
+                <> err
+            pure checked
+        FormatCmd cmd -> do
+          formatted <- ExceptT (runFormatter cmd checked)
+          reparseAs cmd formatted
+        FormatMinify -> do
+          minified <- ExceptT (minify checked)
+          reparseAs "--minify" minified
+  -- A formatting failure must not lose the (already parse-checked)
+  -- bundle: save it and tell the user where it went.
+  formatStage `catchE` \err -> do
+    path <- liftIO (saveUnformatted checked)
+    liftIO (hPutStrLn stderr ("note: the unformatted bundle was saved to " <> path))
+    throwE err
   where
     -- Formatters are arbitrary; make sure the result is still Haskell.
     reparseAs cmd formatted = do
@@ -245,6 +252,16 @@ signatureFor sig bind = case (unLoc sig, unLoc bind) of
       GHC.Hs.PatSynBind _ (GHC.Hs.PSB {GHC.Hs.psb_id = n}) -> [nameOf (unLoc n)]
       _ -> []
     nameOf = occNameString . rdrNameOcc
+
+-- | Save the pre-formatting bundle for the user to salvage after a
+-- formatter failure.
+saveUnformatted :: String -> IO FilePath
+saveUnformatted contents = do
+  tmp <- getTemporaryDirectory
+  (path, h) <- openTempFile tmp "bundler-hs.hs"
+  hPutStr h contents
+  hClose h
+  pure path
 
 -- | Pipe the bundle through the user's formatter (stdin to stdout).
 runFormatter :: String -> String -> IO (Either BundleError String)
