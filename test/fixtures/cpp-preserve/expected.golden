@@ -2,7 +2,9 @@
 
 module Main
   ( main
-  ) where
+  )
+-- ### (user code)
+ where
 #ifdef LOCAL
 debug :: Show a => a -> IO ()
 debug = print

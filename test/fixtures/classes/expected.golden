@@ -2,6 +2,7 @@ module Main
   ( main
   ) where
 
+-- ### (user code)
 data Box =
   Box Int
 

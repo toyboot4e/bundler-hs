@@ -4,6 +4,7 @@ module Main
   ( main
   ) where
 
+-- ### (user code)
 direct :: Int
 direct = myFuncQ 21
 

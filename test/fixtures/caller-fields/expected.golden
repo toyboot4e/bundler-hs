@@ -4,6 +4,7 @@ module Main
   ( main
   ) where
 
+-- ### (user code)
 box :: BoxQ
 box = MkBoxQ {contentQ = 41, labelQ = "x"}
 

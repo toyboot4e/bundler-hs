@@ -22,6 +22,7 @@ solveBB xs = sumUpAlgoC xs * 2
 solveAA :: [Int] -> Int
 solveAA xs = sumUpAlgoC xs + 1
 
+-- ### (user code)
 main :: IO ()
 main = do
   print (solveAA [1, 2, 3])

@@ -2,6 +2,7 @@ module Main
   ( main
   ) where
 
+-- ### (user code)
 main :: IO ()
 main = do
   print ((1, 2) <+> (3, 4))

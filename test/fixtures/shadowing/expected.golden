@@ -2,6 +2,7 @@ module Main
   ( main
   ) where
 
+-- ### (user code)
 lam :: (Int -> Int) -> Int
 lam = \f -> f (gShadow 1)
 

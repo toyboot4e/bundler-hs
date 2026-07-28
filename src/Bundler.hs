@@ -179,9 +179,15 @@ assemble embedPos userDefaults libDefaults userFile extImportLines userDecls loc
         intercalate "\n" imports
       ]
         <> bodyChunks
+    -- The user chunk carries a banner too (when there is library code to
+    -- distinguish it from), so sections stay identifiable in the formatted
+    -- output - the granular minifier relies on these banner lines.
+    userChunk
+      | null locals = intercalate "\n\n" userPieces
+      | otherwise = intercalate "\n\n" ("-- ### (user code)" : userPieces)
     bodyChunks = case embedPos of
-      EmbedAfter -> [intercalate "\n\n" userPieces] <> map localChunk locals
-      EmbedBefore -> map localChunk locals <> [intercalate "\n\n" userPieces]
+      EmbedAfter -> [userChunk] <> map localChunk locals
+      EmbedBefore -> map localChunk locals <> [userChunk]
 
     -- The user's declarations, with any preserved CPP directive lines
     -- re-emitted at the declaration boundaries they came from. A signature

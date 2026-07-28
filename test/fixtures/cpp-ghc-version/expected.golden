@@ -4,6 +4,7 @@ module Main
   ( main
   ) where
 
+-- ### (user code)
 main :: IO ()
 main = print specVer
 
