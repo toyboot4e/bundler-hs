@@ -1,26 +1,34 @@
 module Main (main) where
 
 import Bundler (bundle)
-import Bundler.Config (Config (..), parseConfigFromArgs)
-import Bundler.Error (renderBundleError)
+import Bundler.Config
+  ( Config (..),
+    EmbedPosition (..),
+    FormatMode (..),
+    parseConfigFromArgs,
+  )
+import Bundler.Error (BundleError (..), renderBundleError)
 import Control.Monad (filterM, when)
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.List (isPrefixOf, sort)
 import Data.Maybe (isJust)
 import System.Directory
-  ( doesDirectoryExist,
+  ( createDirectoryIfMissing,
+    doesDirectoryExist,
     doesFileExist,
     getTemporaryDirectory,
     listDirectory,
+    removeDirectoryRecursive,
     removeFile,
   )
-import System.Environment (lookupEnv)
+import System.Environment (lookupEnv, setEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
 import System.IO (hClose, hPutStr, openTempFile)
 import System.Process (readProcessWithExitCode)
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.Golden (goldenVsString)
+import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
 
 fixturesRoot :: FilePath
 fixturesRoot = "test" </> "fixtures"
@@ -31,7 +39,50 @@ main = do
   entries <- sort <$> listDirectory fixturesRoot
   dirs <- filterM (doesDirectoryExist . (fixturesRoot </>)) entries
   tests <- traverse (fixtureTest compileGate) dirs
-  defaultMain (testGroup "golden" tests)
+  defaultMain
+    ( testGroup
+        "all"
+        [ testGroup "golden" tests,
+          testGroup "unit" [formatFailureSalvage]
+        ]
+    )
+
+-- | A failing formatter must not lose the bundle: the pre-format output
+-- is saved to a temp file whose content matches the --no-format output
+-- exactly.
+formatFailureSalvage :: TestTree
+formatFailureSalvage = testCase "format failure saves the unformatted bundle" $ do
+  systemTmp <- getTemporaryDirectory
+  let sandbox = systemTmp </> "bundler-hs-salvage-test"
+      fixture = fixturesRoot </> "format-fail"
+      cfg format =
+        Config
+          { cfgInput = fixture </> "Main.hs",
+            cfgSrcDirs = [],
+            cfgRenameCmd = Nothing,
+            cfgFormat = format,
+            cfgEmbedPosition = EmbedAfter
+          }
+  createDirectoryIfMissing True sandbox
+  mapM_ (removeFile . (sandbox </>)) =<< listDirectory sandbox
+  -- Steer the salvage file into a sandbox we can inspect.
+  setEnv "TMPDIR" sandbox
+  raw <- bundle (cfg FormatNone)
+  result <- bundle (cfg (FormatCmd "false"))
+  setEnv "TMPDIR" systemTmp
+  expected <- either (assertFailure . renderBundleError) pure raw
+  case result of
+    Right _ -> assertFailure "expected the failing formatter to abort bundling"
+    Left (FormatCmdError {}) -> pure ()
+    Left err -> assertFailure ("unexpected error: " <> renderBundleError err)
+  saved <- filter (isPrefixOf "bundler-hs") <$> listDirectory sandbox
+  case saved of
+    [file] -> do
+      contents <- readFile (sandbox </> file)
+      assertEqual "salvaged bundle matches the unformatted output" expected contents
+    _ ->
+      assertBool ("expected exactly one salvaged bundle, found: " <> show saved) False
+  removeDirectoryRecursive sandbox
 
 -- | One golden test per fixture directory. The @args@ file holds
 -- whitespace-separated CLI arguments; @{DIR}@ tokens and relative
