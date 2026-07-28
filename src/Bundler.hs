@@ -97,7 +97,11 @@ bundle cfg = runExceptT $ do
           <> unlines (map ("  " <>) kept)
           <> "these may make names ambiguous in the bundle"
   checked <- ExceptT (selfCheck out)
-  let formatStage = case cfgFormat cfg of
+  let mopts = cfgMinify cfg
+      -- Pre-formatting only matters for sections that stay verbatim.
+      allCodeMinified = moLib mopts && moUser mopts && moImports mopts
+      formatStage = case cfgFormat cfg of
+        _ | allCodeMinified -> pure checked
         FormatNone -> pure checked
         FormatBuiltin -> case formatBuiltin checked of
           Right formatted -> reparseAs "hindent" formatted
@@ -112,12 +116,14 @@ bundle cfg = runExceptT $ do
         FormatCmd cmd -> do
           formatted <- ExceptT (runFormatter cmd checked)
           reparseAs cmd formatted
-        FormatMinify -> do
-          minified <- ExceptT (minify checked)
-          reparseAs "--minify" minified
+      minifyStage formatted
+        | anyMinify mopts = do
+            minified <- ExceptT (minifyWith mopts formatted)
+            reparseAs "--minify" minified
+        | otherwise = pure formatted
   -- A formatting failure must not lose the (already parse-checked)
   -- bundle: save it and tell the user where it went.
-  formatStage `catchE` \err -> do
+  (formatStage >>= minifyStage) `catchE` \err -> do
     path <- liftIO (saveUnformatted checked)
     liftIO (hPutStrLn stderr ("note: the unformatted bundle was saved to " <> path))
     throwE err

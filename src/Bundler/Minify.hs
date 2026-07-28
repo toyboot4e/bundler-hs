@@ -1,13 +1,15 @@
 module Bundler.Minify
-  ( minify,
+  ( minifyWith,
   )
 where
 
+import Bundler.Config (MinifyOptions (..))
 import Bundler.Error
 import Bundler.Parse (baseDynFlags)
+import Data.Char (isSpace)
 import Data.Foldable (toList)
 import Data.Generics.Uniplate.DataOnly (universeBi)
-import Data.List (isPrefixOf, sortOn)
+import Data.List (dropWhileEnd, isPrefixOf, partition, sortOn)
 import GHC.Data.FastString (mkFastString)
 import GHC.Data.StringBuffer (stringToStringBuffer)
 import GHC.Driver.Config.Parser (initParserOpts)
@@ -31,96 +33,171 @@ import Language.Haskell.GhclibParserEx.GHC.Parser (parseFile)
 -- | A position in the source, (line, column).
 type Pos = (Int, Int)
 
--- | One output piece: start position (for ordering and region
--- assignment), priority at equal positions, text, and end position (used
--- to preserve token adjacency).
+-- | One output piece: start position (for ordering), priority at equal
+-- positions, text, and end position (used to preserve token adjacency).
 type Piece = (Pos, Int, String, Pos)
 
--- | Emit the bundle as a pragma block plus layout-free lines.
+-- | Which section a top-level item belongs to, derived from the
+-- @-- ### ...@ banner lines the assembler emits (they survive formatting,
+-- being comments).
+data Section = InUser | InLib
+  deriving (Eq)
+
+-- | Minify the selected sections of the bundle.
 --
--- Layout cannot be resolved by lexing alone (closing an implicit block at
--- @in@ or before @)@ needs parser feedback), so the braces come from the
--- AST instead: every layout block's item spans are known after parsing,
--- and @{@ @;@ @}@ are synthesized at those positions, merged by source
--- position with the real tokens. Comments are dropped.
+-- Minified declarations become one layout-free line each: layout cannot
+-- be resolved by lexing alone (closing an implicit block at @in@ or
+-- before @)@ needs parser feedback), so braces come from the AST's block
+-- item spans, merged by position with the real tokens; tokens adjacent in
+-- the source stay adjacent (prefix @\@@ @!@ @~@ @-@ are
+-- whitespace-sensitive). Comments inside minified sections are dropped.
 --
--- Tokens that were adjacent in the source stay adjacent in the output:
--- since GHC 9.0, prefix occurrences of @\@@, @!@, @~@ and @-@ are
--- disambiguated by whitespace, so @read \@Int@ or a bang pattern would
--- change meaning if a space were inserted.
---
--- Preserved CPP directives (which sit between top-level declarations by
--- construction) survive: the code is emitted as one line per CPP-free
--- region with the directive lines in between. Separators are placed
--- before each item, so a branch deleted by the preprocessor takes its
--- @;@ with it and the surviving code stays valid.
-minify :: String -> IO (Either BundleError String)
-minify src = do
-  parsedFlags <- parsePragmasIntoDynFlags baseDynFlags ([], []) "<minify>" stripped
-  pure $ do
-    flags <- either (Left . FormatCmdError "--minify") Right parsedFlags
-    modl <- case parseFile "<minify>" flags stripped of
-      POk _ m -> Right m
-      PFailed _ -> Left (FormatCmdError "--minify" "the bundle does not re-parse")
-    toks <- case lexTokenStream
-      (initParserOpts flags)
-      (stringToStringBuffer stripped)
-      (mkRealSrcLoc (mkFastString "<minify>") 1 1) of
-      POk _ ts -> Right ts
-      PFailed _ -> Left (FormatCmdError "--minify" "the bundle does not re-lex")
-    let (marks, topSpan) = blockMarks modl
-        pieces = merge (marks <> topBraces topSpan) (concatMap realToken toks)
-    Right (unlines pragmaLines <> regions pieces)
+-- Non-minified declarations are emitted verbatim, which stays valid
+-- inside the explicit-brace module block because item separators are
+-- placed on their own lines, leaving the items' internal layout columns
+-- untouched. Preserved CPP directives keep their own lines; separators
+-- placed before each item mean a preprocessor-deleted branch takes its
+-- separators with it.
+minifyWith :: MinifyOptions -> String -> IO (Either BundleError String)
+minifyWith opts src
+  -- Only pragma combining requested: purely textual.
+  | not (moLib opts || moUser opts || moImports opts) =
+      pure (Right (unlines (combineLangPragmas pragmaBlock) <> unlines afterPragmas))
+  | otherwise = do
+      parsedFlags <- parsePragmasIntoDynFlags baseDynFlags ([], []) "<minify>" stripped
+      pure $ do
+        flags <- either (Left . FormatCmdError "--minify") Right parsedFlags
+        modl <- case parseFile "<minify>" flags stripped of
+          POk _ m -> Right m
+          PFailed _ -> Left (FormatCmdError "--minify" "the bundle does not re-parse")
+        toks <- case lexTokenStream
+          (initParserOpts flags)
+          (stringToStringBuffer stripped)
+          (mkRealSrcLoc (mkFastString "<minify>") 1 1) of
+          POk _ ts -> Right ts
+          PFailed _ -> Left (FormatCmdError "--minify" "the bundle does not re-lex")
+        Right (emit modl (concatMap realToken toks))
   where
-    numberedLines = zip [1 :: Int ..] (lines src)
+    origLines = lines src
+    numberedLines = zip [1 :: Int ..] origLines
     directives = [(n, l) | (n, l) <- numberedLines, isDirectiveLine l]
     stripped =
       unlines [if isDirectiveLine l then "" else l | (_, l) <- numberedLines]
-    srcLines = lines stripped
-    pragmaLines =
-      filter ("{-#" `isPrefixOf`) (takeWhile isHeaderLine srcLines)
-    isHeaderLine l = null l || "{-#" `isPrefixOf` l
     isDirectiveLine l = take 1 l == "#"
 
-    -- The module block's braces, hoisted out of conditional regions: the
-    -- open goes just before the first directive when the first item is
-    -- conditional, the close just after the last directive when the last
-    -- item is. Directive lines carry no tokens, so those positions sort
-    -- exactly at the region boundary. A branch deleted by the
-    -- preprocessor can therefore never take a brace with it (item
-    -- separators travel with their items on purpose). Other blocks are
-    -- always within one declaration and thus one region.
-    topBraces :: Maybe (Pos, Pos) -> [Piece]
-    topBraces Nothing = []
-    topBraces (Just (start@(startLine, _), end@(endLine, _))) =
-      [mark openPos prioOpen "{", mark closePos prioClose "}"]
-      where
-        openPos = case [d | (d, _) <- directives, d < startLine] of
-          [] -> start
-          (d1 : _) -> (d1, 0)
-        closePos = case [d | (d, _) <- directives, d > endLine] of
-          [] -> end
-          ds -> (last ds + 1, 0)
+    (pragmaBlock, afterPragmas) = span isHeaderLine origLines
+    isHeaderLine l = null l || "{-#" `isPrefixOf` l
 
-    -- One minified line per CPP-free region, directive lines verbatim in
-    -- between.
-    regions :: [Piece] -> String
-    regions pieces =
-      concatMap emit (zip [0 ..] splitRegions)
+    combineLangPragmas ls
+      | not (moPragmas opts) = filter (not . null) ls
+      | otherwise =
+          filter (not . null) others
+            <> [ "{-# LANGUAGE " <> commas names <> " #-}"
+               | not (null names)
+               ]
       where
-        splitRegions =
-          [ [p | p@((line, _), _, _, _) <- pieces, regionOf line == i]
-          | i <- [0 .. length directives]
+        (langs, others) = partition ("{-# LANGUAGE" `isPrefixOf`) ls
+        names =
+          [ name
+          | l <- langs,
+            name <- words (map decomma (takeWhile (/= '#') (drop 12 l)))
           ]
-        regionOf line = length (takeWhile ((< line) . fst) directives)
-        emit (i, ps) =
-          (if i == 0 then "" else snd (directives !! (i - 1)) <> "\n")
-            <> (if null ps then "" else joinPieces ps <> "\n")
+        decomma c = if c == ',' then ' ' else c
+        commas [n] = n
+        commas (n : ns) = n <> ", " <> commas ns
+        commas [] = ""
+
+    -- Per-line section, scanned from the assembler's banner lines.
+    sectionAt :: Int -> Section
+    sectionAt line =
+      case [s | (n, s) <- bannerSections, n <= line] of
+        [] -> InUser
+        ss -> last ss
+    bannerSections =
+      [ (n, if "-- ### (user code)" `isPrefixOf` dropWhile isSpace l then InUser else InLib)
+      | (n, l) <- numberedLines,
+        "-- ###" `isPrefixOf` dropWhile isSpace l
+      ]
+
+    emit :: Located (HsModule GhcPs) -> [Piece] -> String
+    emit modl tokens =
+      unlines $
+        combineLangPragmas pragmaBlock
+          <> headerOut
+          <> ["{"]
+          <> body
+          <> ["}"]
+      where
+        items =
+          sortOn (\(pos, _, _) -> pos) $
+            [ (start, end, True)
+            | imp <- hsmodImports (unLoc modl),
+              (start, end) <- realPos (getLocA imp)
+            ]
+              <> [ (start, end, False)
+                 | decl <- hsmodDecls (unLoc modl),
+                   (start, end) <- realPos (getLocA decl)
+                 ]
+
+        minified (startLine, _) isImport
+          | isImport = moImports opts
+          | otherwise = case sectionAt startLine of
+              InUser -> moUser opts
+              InLib -> moLib opts
+
+        firstContentLine = case (items, directives) of
+          ((s, _, _) : _, (d, _) : _) -> min (fst s) d
+          ((s, _, _) : _, []) -> fst s
+          ([], (d, _) : _) -> d
+          ([], []) -> length origLines + 1
+
+        -- The module header, minified to one line (it never hurts); a
+        -- headerless file gets the header the Haskell report implies.
+        headerOut = case hsmodName (unLoc modl) of
+          Nothing -> ["module Main (main) where"]
+          Just _ ->
+            [ joinPieces
+                [p | p@((line, _), _, _, _) <- pieces, line < firstContentLine]
+            ]
+
+        pieces = merge (blockMarks modl) tokens
+
+        piecesWithin (start, end) =
+          [p | p@(pos, _, _, _) <- pieces, pos >= start, pos < end || pos == end]
+
+        -- Items and directives interleaved by line; the first item has no
+        -- separator, every later one carries its own (inline for minified
+        -- items, on its own line before verbatim ones so their layout
+        -- columns survive).
+        body = go True (sortOn entryLine stream)
+          where
+            stream =
+              [Left d | d <- directives]
+                <> [Right it | it <- items]
+            entryLine (Left (n, _)) = n
+            entryLine (Right ((n, _), _, _)) = n
+            go _ [] = []
+            go isFirst (Left (_, text) : rest) = text : go isFirst rest
+            go isFirst (Right it@(start, end, isImport) : rest)
+              | minified start isImport =
+                  ((if isFirst then "" else "; ") <> joinPieces (piecesWithin (start, end)))
+                    : go False rest
+              | otherwise =
+                  [";" | not isFirst]
+                    <> verbatim it
+                    <> go False rest
+            verbatim ((startLine, _), (endLine, endCol), _) =
+              [ line
+              | line <-
+                  take (endLine' - startLine + 1) (drop (startLine - 1) origLines)
+              ]
+              where
+                endLine' = if endCol == 1 then endLine - 1 else endLine
 
     -- Single space between pieces, except between two tokens that were
     -- adjacent in the source.
     joinPieces :: [Piece] -> String
-    joinPieces = go Nothing
+    joinPieces = dropWhileEnd isSpace . go Nothing
       where
         go _ [] = ""
         go prevEnd ((start, prio, text, end) : rest) =
@@ -163,7 +240,7 @@ minify src = do
     sliceSpan real =
       take (srcSpanEndCol real - srcSpanStartCol real)
         . drop (srcSpanStartCol real - 1)
-        $ case drop (srcSpanStartLine real - 1) srcLines of
+        $ case drop (srcSpanStartLine real - 1) origLines of
           (l : _) -> l
           [] -> ""
 
@@ -183,14 +260,12 @@ prioSemi = 1
 prioOpen = 2
 prioToken = 3
 
--- | Synthesized braces and separators for every layout block in the
--- module, positioned at item boundaries, plus the module block's own
--- (start, end) span — its braces are placed by the caller, which knows
--- about preserved CPP regions.
-blockMarks ::
-  Located (HsModule GhcPs) ->
-  ([Piece], Maybe (Pos, Pos))
-blockMarks lmodl = (concatMap marksFor blocks <> topSemis <> equationSemis, topSpan)
+-- | Synthesized braces and separators for every layout block below the
+-- top level, positioned at item boundaries. (The module block's braces
+-- and item separators are handled by the emitter, which knows which
+-- items are minified.)
+blockMarks :: Located (HsModule GhcPs) -> [Piece]
+blockMarks lmodl = concatMap marksFor blocks <> equationSemis
   where
     -- Consecutive equations of one function are a single declaration but
     -- separate items of the enclosing explicit-layout block: each
@@ -204,15 +279,6 @@ blockMarks lmodl = (concatMap marksFor blocks <> topSemis <> equationSemis, topS
         alt <- drop 1 alts,
         (pos, _) <- realPos (getLocA alt)
       ]
-
-    modl = unLoc lmodl
-    -- Imports and declarations together form the module's layout block.
-    topLevel = map getLocA (hsmodImports modl) <> map getLocA (hsmodDecls modl)
-    topItems = sortOn fst (concatMap realPos topLevel)
-    topSemis = [mark pos prioSemi ";" | (pos, _) <- drop 1 topItems]
-    topSpan = case topItems of
-      [] -> Nothing
-      xs@((start, _) : _) -> Just (start, maximum (map snd xs))
 
     blocks :: [[SrcSpan]]
     blocks =
@@ -315,11 +381,11 @@ blockMarks lmodl = (concatMap marksFor blocks <> topSemis <> equationSemis, topS
           : [mark pos prioSemi ";" | (pos, _) <- drop 1 spans]
             <> [mark (maximum (map snd spans)) prioClose "}"]
 
-    realPos :: SrcSpan -> [(Pos, Pos)]
-    realPos sp = case sp of
-      RealSrcSpan real _ ->
-        [ ( (srcSpanStartLine real, srcSpanStartCol real),
-            (srcSpanEndLine real, srcSpanEndCol real)
-          )
-        ]
-      _ -> []
+realPos :: SrcSpan -> [(Pos, Pos)]
+realPos sp = case sp of
+  RealSrcSpan real _ ->
+    [ ( (srcSpanStartLine real, srcSpanStartCol real),
+        (srcSpanEndLine real, srcSpanEndCol real)
+      )
+    ]
+  _ -> []

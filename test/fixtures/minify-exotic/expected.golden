@@ -1,3 +1,12 @@
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE TypeFamilies #-}
-module Main ( main ) where { main :: IO () ; main = do { print (evalE (AddEE (IntEE 1) (IntEE 2))) ; print (evalE (BoolEE True)) ; print (insertE (3 :: Int) emptyE :: [Int]) } ; data ExprE a where { IntEE :: Int -> ExprE Int ; AddEE :: ExprE Int -> ExprE Int -> ExprE Int ; BoolEE :: Bool -> ExprE Bool } ; type family ElemE c where { ElemE [a] = a ; ElemE (Maybe a) = a } ; class ContainerE f where { type IdxE f ; type IdxE f = Int ; emptyE :: f a ; insertE :: a -> f a -> f a } ; instance ContainerE [] where { emptyE = [] ; insertE = (:) } ; evalE :: ExprE a -> a ; evalE (IntEE n) = n ; evalE (AddEE a b) = evalE a + evalE b ; evalE (BoolEE b) = b }
+{-# LANGUAGE GADTs, TypeFamilies #-}
+module Main ( main ) where
+{
+main :: IO ()
+; main = do { print (evalE (AddEE (IntEE 1) (IntEE 2))) ; print (evalE (BoolEE True)) ; print (insertE (3 :: Int) emptyE :: [Int]) }
+; data ExprE a where { IntEE :: Int -> ExprE Int ; AddEE :: ExprE Int -> ExprE Int -> ExprE Int ; BoolEE :: Bool -> ExprE Bool }
+; type family ElemE c where { ElemE [a] = a ; ElemE (Maybe a) = a }
+; class ContainerE f where { type IdxE f ; type IdxE f = Int ; emptyE :: f a ; insertE :: a -> f a -> f a }
+; instance ContainerE [] where { emptyE = [] ; insertE = (:) }
+; evalE :: ExprE a -> a
+; evalE (IntEE n) = n ; evalE (AddEE a b) = evalE a + evalE b ; evalE (BoolEE b) = b
+}

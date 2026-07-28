@@ -5,6 +5,7 @@ import Bundler.Config
   ( Config (..),
     EmbedPosition (..),
     FormatMode (..),
+    noMinify,
     parseConfigFromArgs,
   )
 import Bundler.Error (BundleError (..), renderBundleError)
@@ -61,6 +62,7 @@ formatFailureSalvage = testCase "format failure saves the unformatted bundle" $ 
             cfgSrcDirs = [],
             cfgRenameCmd = Nothing,
             cfgFormat = format,
+            cfgMinify = noMinify,
             cfgEmbedPosition = EmbedAfter
           }
   createDirectoryIfMissing True sandbox

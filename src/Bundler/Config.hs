@@ -2,6 +2,9 @@ module Bundler.Config
   ( Config (..),
     EmbedPosition (..),
     FormatMode (..),
+    MinifyOptions (..),
+    anyMinify,
+    noMinify,
     configParserInfo,
     parseConfigFromArgs,
   )
@@ -22,6 +25,8 @@ data Config = Config
     cfgRenameCmd :: Maybe String,
     -- | How the finished bundle is formatted before printing.
     cfgFormat :: FormatMode,
+    -- | Which sections of the bundle are minified (after formatting).
+    cfgMinify :: MinifyOptions,
     -- | Where the expanded library code goes relative to the user's own
     -- declarations.
     cfgEmbedPosition :: EmbedPosition
@@ -48,10 +53,28 @@ data FormatMode
     FormatCmd String
   | -- | Emit the raw pretty-printer output (@--no-format@).
     FormatNone
-  | -- | Emit a pragma block plus layout-free lines, one per CPP-free
-    -- region (@--minify@).
-    FormatMinify
   deriving (Show)
+
+-- | Which sections of the bundle are minified. Applied after the
+-- formatting stage, so non-minified sections keep their formatting; the
+-- usual choice is minifying only the expanded library code.
+data MinifyOptions = MinifyOptions
+  { -- | Expanded library code: one layout-free line per declaration.
+    moLib :: Bool,
+    -- | The user's own declarations.
+    moUser :: Bool,
+    -- | The import section.
+    moImports :: Bool,
+    -- | Combine all LANGUAGE pragmas into a single line.
+    moPragmas :: Bool
+  }
+  deriving (Show)
+
+noMinify :: MinifyOptions
+noMinify = MinifyOptions False False False False
+
+anyMinify :: MinifyOptions -> Bool
+anyMinify o = moLib o || moUser o || moImports o || moPragmas o
 
 configParser :: Parser Config
 configParser =
@@ -75,6 +98,7 @@ configParser =
           )
       )
     <*> formatMode
+    <*> minifyOptions
     <*> option
       readEmbedPosition
       ( long "embed-position"
@@ -104,13 +128,35 @@ formatMode =
       ( long "no-format"
           <> help "Emit the raw pretty-printer output without formatting"
       )
-    <|> flag'
-      FormatMinify
-      ( long "minify"
-          <> help
-            "Emit the bundle as a pragma block plus layout-free lines (one per CPP-free region; comments dropped)"
-      )
     <|> pure FormatBuiltin
+
+minifyOptions :: Parser MinifyOptions
+minifyOptions =
+  combine
+    <$> switch
+      ( long "minify"
+          <> help "Minify everything: shorthand for all --minify-* flags"
+      )
+    <*> switch
+      ( long "minify-lib"
+          <> help "Minify the expanded library code (one layout-free line per declaration; comments dropped)"
+      )
+    <*> switch
+      ( long "minify-user-code"
+          <> help "Minify your own declarations too"
+      )
+    <*> switch
+      ( long "minify-import"
+          <> help "Minify the import section"
+      )
+    <*> switch
+      ( long "minify-language-extensions"
+          <> help "Combine all LANGUAGE pragmas into a single {-# LANGUAGE A, B, ... #-} line"
+      )
+  where
+    combine everything lib user imports pragmas
+      | everything = MinifyOptions True True True True
+      | otherwise = MinifyOptions lib user imports pragmas
 
 configParserInfo :: ParserInfo Config
 configParserInfo =

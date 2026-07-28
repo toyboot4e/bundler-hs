@@ -32,10 +32,17 @@ $ bundler-hs Main.hs --src path/to/your/library > submission.hs
     *preserve* the input's line-break decisions by design, so
     `--format-cmd 'ormolu --stdin-input-file B.hs'` normalizes spacing
     but keeps the raw layout's shape.
-  - `--minify`: emit the bundle as a pragma block plus layout-free lines
-    (comments dropped, braces/semicolons synthesized from the AST).
-    Preserved user-file CPP directives stay on their own lines, with one
-    minified line per CPP-free region.
+  - Minification is per section and composes with formatting (minified
+    sections are layout-free with braces/semicolons synthesized from the
+    AST; comments dropped; the rest stays formatted):
+    - `--minify-lib`: the expanded library code (the usual choice - your
+      own code stays readable);
+    - `--minify-user-code`: your own declarations;
+    - `--minify-import`: the import section;
+    - `--minify-language-extensions`: one combined
+      `{-# LANGUAGE A, B, ... #-}` line;
+    - `--minify`: all of the above.
+    Preserved user-file CPP directives keep their own lines.
   - Formatted output is always re-parsed before it reaches stdout. If a
     formatter fails, the (valid, unformatted) bundle is saved to a
     temporary file whose path is printed on stderr.
