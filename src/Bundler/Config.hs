@@ -165,13 +165,14 @@ configParserInfo =
     ( fullDesc
         <> progDesc "Expand local library imports into one self-contained Haskell file on stdout"
         <> header "bundler-hs - Haskell source bundler for competitive programming"
-        <> footerDoc (Just renameCmdProtocol)
+        <> footerDoc (Just footerNotes)
     )
 
--- | The --rename-cmd wire protocol, shown at the bottom of --help. Keep in
--- sync with 'Bundler.RenameCmd.RenameQuery'.
-renameCmdProtocol :: Doc
-renameCmdProtocol =
+-- | Minification notes and the --format-cmd / --rename-cmd protocols,
+-- shown at the bottom of --help. Keep the rename part in sync with
+-- 'Bundler.RenameCmd.RenameQuery'.
+footerNotes :: Doc
+footerNotes =
   vsep
     ( map
         pretty
@@ -182,9 +183,9 @@ renameCmdProtocol =
           "  setup is --minify-lib: your own code stays readable while the",
           "  expanded library shrinks. --minify is all sections at once.",
           "",
-          "The --rename-cmd protocol:",
-          "  CMD is started once. For every name, one tab-separated query line is",
-          "  written to its stdin and one response line is read from its stdout:",
+          "--format-cmd is a plain filter: bundle on stdin, formatted bundle on stdout.",
+          "",
+          "--rename-cmd is queried in lockstep via stdin/stdout, one line per name:",
           "",
           "    kind <TAB> module <TAB> default-suffix <TAB> name  ->  new-name",
           "",
