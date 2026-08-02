@@ -41,13 +41,6 @@ main :: IO ()
 main = do
   n <- doBind
   print
-    [ lam succ
-    , letBound
-    , whereBound
-    , caseAlt Nothing
-    , n
-    , sum comprehension
-    , patternGuard (Just 1)
-    ]
+    [lam succ, letBound, whereBound, caseAlt Nothing, n, sum comprehension, patternGuard (Just 1)]
 
 fShadow :: Int -> Int ; fShadow = (+ 100) ; gShadow :: Int -> Int ; gShadow x = inner (\f -> f x) where { inner k = k step ; step y = fShadow y - 100 }

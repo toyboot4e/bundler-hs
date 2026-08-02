@@ -6,6 +6,7 @@ module Bundler.Config
     anyMinify,
     noMinify,
     configParserInfo,
+    parserPrefs,
     parseConfigFromArgs,
   )
 where
@@ -195,11 +196,16 @@ footerNotes =
         ]
     )
 
+-- | Parser preferences shared by the executable and the test harness:
+-- optparse wraps at 80 columns by default, which is too narrow.
+parserPrefs :: ParserPrefs
+parserPrefs = prefs (columns 120)
+
 -- | Parse a raw argument list (used by the test harness; the executable
--- uses 'configParserInfo' with 'execParser' directly).
+-- uses 'configParserInfo' directly).
 parseConfigFromArgs :: [String] -> Either String Config
 parseConfigFromArgs args =
-  case execParserPure defaultPrefs configParserInfo args of
+  case execParserPure parserPrefs configParserInfo args of
     Success cfg -> Right cfg
     Failure failure -> Left (fst (renderFailure failure "bundler-hs"))
     CompletionInvoked _ -> Left "unexpected completion invocation"

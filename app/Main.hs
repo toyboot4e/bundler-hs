@@ -1,11 +1,10 @@
 module Main (main) where
 
 import Bundler (bundle)
-import Bundler.Config (configParserInfo)
+import Bundler.Config (configParserInfo, parserPrefs)
 import Bundler.Error (renderBundleError)
 import Options.Applicative
   ( ParserResult (..),
-    defaultPrefs,
     execParserPure,
     handleParseResult,
     renderFailure,
@@ -17,7 +16,7 @@ import System.IO (hPutStrLn, stderr)
 main :: IO ()
 main = do
   args <- getArgs
-  let result = execParserPure defaultPrefs configParserInfo args
+  let result = execParserPure parserPrefs configParserInfo args
   cfg <- case result of
     -- The brief usage error never mentions --help; point at it (the
     -- protocol notes in particular are only shown there).

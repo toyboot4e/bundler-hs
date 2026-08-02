@@ -5,7 +5,7 @@ where
 
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as T
-import HIndent (defaultConfig, reformat)
+import HIndent (Config (..), defaultConfig, reformat)
 import HIndent qualified
 
 -- | Format with the hindent library (shared ghc-lib-parser, no external
@@ -13,7 +13,7 @@ import HIndent qualified
 -- GHC pretty-printer's output needs.
 formatBuiltin :: String -> Either String String
 formatBuiltin src =
-  case reformat defaultConfig HIndent.defaultExtensions Nothing utf8 of
+  case reformat defaultConfig {configMaxColumns = 100} HIndent.defaultExtensions Nothing utf8 of
     Left err -> Left (show err)
     Right formatted -> Right (T.unpack (T.decodeUtf8Lenient formatted))
   where
