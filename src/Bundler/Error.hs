@@ -33,6 +33,10 @@ data BundleError
     UnknownQualifiedName String String
   | -- | An unqualified name is importable from several local modules.
     AmbiguousName String [String]
+  | -- | One qualifier is bound to more than one module in a file whose
+    -- references are rewritten; the bundler cannot attribute @X.name@
+    -- reliably (it does not scope-union like GHC).
+    QualifierConflict String [String]
   | -- | An import list mentions a name the local module does not export.
     NotExported String String
   | -- | The @--rename-cmd@ child failed or produced an unusable response.
@@ -88,6 +92,12 @@ renderBundleError err = case err of
       <> name
       <> " is ambiguous; it could come from "
       <> intercalate " or " origins
+  QualifierConflict q modules ->
+    unlines
+      ( ("error: qualifier " <> q <> " refers to more than one module:")
+          : map ("  - " <>) modules
+            <> ["hint: give each import its own alias"]
+      )
   NotExported name m ->
     "error: module " <> m <> " does not export " <> name
   RenameCmdError ctx why ->

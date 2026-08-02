@@ -1,0 +1,4 @@
+error: qualifier M refers to more than one module:
+  - Data.Map.Strict
+  - Data.Set
+hint: give each import its own alias

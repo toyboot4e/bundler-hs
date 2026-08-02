@@ -1,0 +1,16 @@
+module Main
+  ( main
+  ) where
+
+import qualified Data.Char as C
+import qualified Data.List as C
+
+main :: IO ()
+main = do
+  print (C.toUpper 'a')
+  print (C.sort [3, 1, 2 :: Int])
+  print (doubleUtil 21)
+
+-- ### Util
+doubleUtil :: Int -> Int
+doubleUtil = (* 2)

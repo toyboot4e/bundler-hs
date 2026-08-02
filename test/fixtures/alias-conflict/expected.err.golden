@@ -1,0 +1,4 @@
+error: qualifier X refers to more than one module:
+  - CounterA
+  - CounterB
+hint: give each import its own alias

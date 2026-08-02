@@ -95,6 +95,10 @@ mkResolveEnv ::
   ParsedFile ->
   Either BundleError ResolveEnv
 mkResolveEnv plan symsOf self pf = do
+  case qualConflicts of
+    (q, ms) : _ ->
+      Left (QualifierConflict (moduleNameString q) (map moduleNameString ms))
+    [] -> Right ()
   unqual <- mconcat <$> traverse (unqualsOf . unLoc) imports
   let unqualLocal = Map.unionsWith (<>) unqual
   pure
@@ -122,6 +126,26 @@ mkResolveEnv plan symsOf self pf = do
     wrappedKey = occKeyOf . ieWrappedName . unLoc
 
     isExternal imp = not (unLoc (ideclName imp) `Map.member` symsOf)
+
+    -- One qualifier naming two different modules cannot be attributed
+    -- reliably (the bundler does not scope-union like GHC), so it is
+    -- rejected wherever references are rewritten: everywhere in a library
+    -- file, and for qualifiers involving a local module in the user's file
+    -- (whose external imports survive verbatim).
+    qualConflicts =
+      [ (q, ms)
+      | (q, mset) <- Map.toAscList qualTargets,
+        let ms = Set.toAscList mset,
+        length ms > 1,
+        isLibrary || any (`Map.member` symsOf) ms
+      ]
+    qualTargets =
+      Map.fromListWith
+        Set.union
+        [ (maybe m unLoc (ideclAs imp), Set.singleton m)
+        | imp <- map unLoc imports,
+          let m = unLoc (ideclName imp)
+        ]
 
     -- Every external import (any style) allows qualified access via its
     -- alias or module name; all such references become canonical.
