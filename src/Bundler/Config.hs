@@ -139,7 +139,7 @@ minifyOptions =
       )
     <*> switch
       ( long "minify-lib"
-          <> help "Minify the expanded library code (one layout-free line per declaration; comments dropped)"
+          <> help "Minify the expanded library code into one layout-free line (comments dropped)"
       )
     <*> switch
       ( long "minify-user-code"
@@ -147,7 +147,7 @@ minifyOptions =
       )
     <*> switch
       ( long "minify-import"
-          <> help "Minify the import section"
+          <> help "Minify the import section into one line"
       )
     <*> switch
       ( long "minify-language-extensions"

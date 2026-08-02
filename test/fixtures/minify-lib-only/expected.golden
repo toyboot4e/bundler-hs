@@ -1,21 +1,13 @@
 {-# LANGUAGE LambdaCase, TupleSections #-}
 module Main ( main ) where
-{
-import Data.List (sortBy)
-; import Data.Ord (comparing)
-;
+import Data.List (sortBy) ; import Data.Ord (comparing)
 solve :: [Int] -> [Int]
-;
 solve =
   sortBy (comparing negate)
     . map
         (\case
            0 -> incAlg 0
            n -> n)
-;
 main :: IO ()
-;
 main = print (solve [3, 0, 2, 1])
-; incAlg :: Int -> Int
-; incAlg = (+ 1)
-}
+incAlg :: Int -> Int ; incAlg = (+ 1)

@@ -1,20 +1,4 @@
 {-# LANGUAGE BangPatterns, PatternSynonyms, TypeApplications #-}
 module Main ( main ) where
-{
-main :: IO ()
-; main = do { print (readIntTorture "41") ; print (sumStrictTorture [1, 2, 3]) ; print (True --> False) ; print (classifyTorture (- 1)) ; print (lazySndTorture (1, 2)) ; case [5 :: Int] of { SingleTorture x -> print (x, SingleTorture x) ; _ -> pure () } }
-; pattern SingleTorture :: a -> [a]
-; pattern SingleTorture x <- [x] where { SingleTorture x = [x] }
-; data AccTorture = AccTorture {getAccTorture :: !Int}
-; (-->) :: Bool -> Bool -> Bool
-; True --> b = b ; False --> _ = True
-; infixr 1 -->
-; readIntTorture :: String -> Int
-; readIntTorture = read @Int
-; sumStrictTorture :: [Int] -> Int
-; sumStrictTorture = go (AccTorture 0) where { go (AccTorture !acc) [] = acc ; go (AccTorture !acc) (x : xs) = go (AccTorture (acc + x)) xs }
-; classifyTorture :: Int -> String
-; classifyTorture (-1) = "neg one" ; classifyTorture 0 = "zero" ; classifyTorture _ = "other"
-; lazySndTorture :: (Int, Int) -> Int
-; lazySndTorture ~(_, b) = b
-}
+main :: IO () ; main = do { print (readIntTorture "41") ; print (sumStrictTorture [1, 2, 3]) ; print (True --> False) ; print (classifyTorture (- 1)) ; print (lazySndTorture (1, 2)) ; case [5 :: Int] of { SingleTorture x -> print (x, SingleTorture x) ; _ -> pure () } }
+pattern SingleTorture :: a -> [a] ; pattern SingleTorture x <- [x] where { SingleTorture x = [x] } ; data AccTorture = AccTorture {getAccTorture :: !Int} ; (-->) :: Bool -> Bool -> Bool ; True --> b = b ; False --> _ = True ; infixr 1 --> ; readIntTorture :: String -> Int ; readIntTorture = read @Int ; sumStrictTorture :: [Int] -> Int ; sumStrictTorture = go (AccTorture 0) where { go (AccTorture !acc) [] = acc ; go (AccTorture !acc) (x : xs) = go (AccTorture (acc + x)) xs } ; classifyTorture :: Int -> String ; classifyTorture (-1) = "neg one" ; classifyTorture 0 = "zero" ; classifyTorture _ = "other" ; lazySndTorture :: (Int, Int) -> Int ; lazySndTorture ~(_, b) = b

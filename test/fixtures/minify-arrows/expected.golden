@@ -1,12 +1,5 @@
 {-# LANGUAGE Arrows #-}
 module Main ( main ) where
-{
-import qualified Control.Arrow
-; import Control.Arrow
-; main :: IO ()
-; main = print (pipelineArrowy 20)
-; pipelineArrowy :: Int -> Int
-; pipelineArrowy = runId $ proc x -> do { let { y = x + 1 } ; z <- arr (* 2) -< y ; case even z of { True -> returnA -< z ; False -> returnA -< z + 1 } } where { runId f = f }
-; runKleisliLikeArrowy :: (Int -> Int) -> Int -> Int
-; runKleisliLikeArrowy f = f
-}
+import qualified Control.Arrow ; import Control.Arrow
+main :: IO () ; main = print (pipelineArrowy 20)
+pipelineArrowy :: Int -> Int ; pipelineArrowy = runId $ proc x -> do { let { y = x + 1 } ; z <- arr (* 2) -< y ; case even z of { True -> returnA -< z ; False -> returnA -< z + 1 } } where { runId f = f } ; runKleisliLikeArrowy :: (Int -> Int) -> Int -> Int ; runKleisliLikeArrowy f = f

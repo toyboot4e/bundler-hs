@@ -9,7 +9,7 @@ import Bundler.Parse (baseDynFlags)
 import Data.Char (isSpace)
 import Data.Foldable (toList)
 import Data.Generics.Uniplate.DataOnly (universeBi)
-import Data.List (dropWhileEnd, isPrefixOf, partition, sortOn)
+import Data.List (dropWhileEnd, intercalate, isPrefixOf, nub, partition, sortOn)
 import GHC.Data.FastString (mkFastString)
 import GHC.Data.StringBuffer (stringToStringBuffer)
 import GHC.Driver.Config.Parser (initParserOpts)
@@ -18,7 +18,6 @@ import GHC.Parser.Lexer (ParseResult (..), Token (..), lexTokenStream)
 import GHC.Types.SrcLoc
   ( GenLocated (..),
     Located,
-    RealSrcSpan,
     SrcSpan (..),
     mkRealSrcLoc,
     srcSpanEndCol,
@@ -45,19 +44,21 @@ data Section = InUser | InLib
 
 -- | Minify the selected sections of the bundle.
 --
--- Minified declarations become one layout-free line each: layout cannot
--- be resolved by lexing alone (closing an implicit block at @in@ or
--- before @)@ needs parser feedback), so braces come from the AST's block
--- item spans, merged by position with the real tokens; tokens adjacent in
--- the source stay adjacent (prefix @\@@ @!@ @~@ @-@ are
+-- Each minified section (imports, user code, library code) becomes one
+-- layout-free line, with @;@ between the declarations on it. Nested
+-- layout cannot be resolved by lexing alone (closing an implicit block at
+-- @in@ or before @)@ needs parser feedback), so braces come from the
+-- AST's block item spans, merged by position with the real tokens; tokens
+-- adjacent in the source stay adjacent (prefix @\@@ @!@ @~@ @-@ are
 -- whitespace-sensitive). Comments inside minified sections are dropped.
 --
--- Non-minified declarations are emitted verbatim, which stays valid
--- inside the explicit-brace module block because item separators are
--- placed on their own lines, leaving the items' internal layout columns
--- untouched. Preserved CPP directives keep their own lines; separators
--- placed before each item mean a preprocessor-deleted branch takes its
--- separators with it.
+-- The module body itself stays implicit layout: every top-level item -
+-- a minified section line or the first line of a verbatim declaration -
+-- starts at column 1, so no braces around the body and no separators
+-- between lines are needed, and non-minified declarations keep their
+-- internal layout untouched. Preserved CPP directives keep their own
+-- lines; with no separator bookkeeping, a preprocessor-deleted branch
+-- removes exactly its own items.
 minifyWith :: MinifyOptions -> String -> IO (Either BundleError String)
 minifyWith opts src
   -- Only pragma combining requested: purely textual.
@@ -97,11 +98,14 @@ minifyWith opts src
                ]
       where
         (langs, others) = partition ("{-# LANGUAGE" `isPrefixOf`) ls
+        -- The union of user and library pragmas repeats names; keep the
+        -- first occurrence of each.
         names =
-          [ name
-          | l <- langs,
-            name <- words (map decomma (takeWhile (/= '#') (drop 12 l)))
-          ]
+          nub
+            [ name
+            | l <- langs,
+              name <- words (map decomma (takeWhile (/= '#') (drop 12 l)))
+            ]
         decomma c = if c == ',' then ' ' else c
         commas [n] = n
         commas (n : ns) = n <> ", " <> commas ns
@@ -124,9 +128,7 @@ minifyWith opts src
       unlines $
         combineLangPragmas pragmaBlock
           <> headerOut
-          <> ["{"]
           <> body
-          <> ["}"]
       where
         items =
           sortOn (\(pos, _, _) -> pos) $
@@ -165,27 +167,36 @@ minifyWith opts src
         piecesWithin (start, end) =
           [p | p@(pos, _, _, _) <- pieces, pos >= start, pos < end || pos == end]
 
-        -- Items and directives interleaved by line; the first item has no
-        -- separator, every later one carries its own (inline for minified
-        -- items, on its own line before verbatim ones so their layout
-        -- columns survive).
-        body = go True (sortOn entryLine stream)
+        -- Items and directives interleaved by line, every item starting
+        -- at column 1 (a new item under the module body's implicit
+        -- layout). Consecutive minified items of one kind (imports / user
+        -- code / library code) merge into a single line; a CPP directive
+        -- or a verbatim item breaks the run.
+        body = go (sortOn entryLine stream)
           where
             stream =
               [Left d | d <- directives]
                 <> [Right it | it <- items]
             entryLine (Left (n, _)) = n
             entryLine (Right ((n, _), _, _)) = n
-            go _ [] = []
-            go isFirst (Left (_, text) : rest) = text : go isFirst rest
-            go isFirst (Right it@(start, end, isImport) : rest)
+            go [] = []
+            go (Left (_, text) : rest) = text : go rest
+            go entries@(Right it@(start, _, isImport) : _)
               | minified start isImport =
-                  ((if isFirst then "" else "; ") <> joinPieces (piecesWithin (start, end)))
-                    : go False rest
-              | otherwise =
-                  [";" | not isFirst]
-                    <> verbatim it
-                    <> go False rest
+                  let (run, rest) = spanRun (groupOf it) entries
+                   in intercalate
+                        " ; "
+                        [joinPieces (piecesWithin (s, e)) | (s, e, _) <- run]
+                        : go rest
+            go (Right it : rest) = verbatim it <> go rest
+
+            spanRun g (Right jt@(s, _, imp) : rest)
+              | minified s imp,
+                groupOf jt == g =
+                  let (run, rest') = spanRun g rest in (jt : run, rest')
+            spanRun _ rest = ([], rest)
+
+            groupOf ((line, _), _, isImport) = (isImport, sectionAt line)
             verbatim ((startLine, _), (endLine, endCol), _) =
               [ line
               | line <-
