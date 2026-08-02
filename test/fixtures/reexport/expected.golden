@@ -1,0 +1,23 @@
+module Main
+  ( main
+  ) where
+
+-- ### (user code)
+main :: IO ()
+main = do
+  print (shrinkExtra 1)
+  print (growCore 2)
+  print (flattenCore 3)
+  print (growCore 4)
+
+-- ### Core
+flattenCore :: Int -> Int
+flattenCore = subtract 1
+
+growCore :: Int -> Int
+growCore x = x + 1
+
+-- ### Extra
+shrinkExtra :: Int -> Int
+shrinkExtra x = flattenCore (growCore x) - 1
+-- ### Bulk

@@ -4,6 +4,7 @@ module Bundler.Symbols
     SymKind (..),
     ModuleSymbols (..),
     moduleSymbols,
+    importVisibleOrigins,
     nsKeyOf,
     occKeyOf,
     isOperatorString,
@@ -21,7 +22,7 @@ import Data.Set qualified as Set
 import GHC.Hs
 import GHC.Types.Name.Occurrence (OccName, isDataOcc, isTcOcc, occNameString)
 import GHC.Types.Name.Reader (RdrName, rdrNameOcc)
-import GHC.Types.SrcLoc (unLoc)
+import GHC.Types.SrcLoc (GenLocated (..), unLoc)
 
 -- | GHC distinguishes several 'OccName' namespaces; for renaming we only
 -- need three buckets. Record fields are bucketed with values so that a field
@@ -55,7 +56,13 @@ data ModuleSymbols = ModuleSymbols
     msChildren :: Map String [OccKey],
     -- | Data constructor name -> its record field names (for wildcard and
     -- pun expansion).
-    msFieldsOf :: Map String [String]
+    msFieldsOf :: Map String [String],
+    -- | The @module M@ items of the export list (except @module Self@,
+    -- which is folded into 'msExported' directly).
+    msReExportedModules :: [ModuleName],
+    -- | Re-exported name -> the local module that defines it. Empty until
+    -- 'Bundler.ReExport.resolveReExports' fills it in.
+    msReExported :: Map OccKey ModuleName
   }
   deriving (Show)
 
@@ -81,7 +88,9 @@ moduleSymbols pf =
     { msAll = allSyms,
       msExported = exported,
       msChildren = childrenMap,
-      msFieldsOf = Map.fromListWith (<>) fieldsOf
+      msFieldsOf = Map.fromListWith (<>) fieldsOf,
+      msReExportedModules = reExportedModules,
+      msReExported = Map.empty
     }
   where
     childrenMap = Map.fromListWith (<>) children
@@ -96,14 +105,24 @@ moduleSymbols pf =
       [ (con, [name])
       | ((_, name), SymField, _, Just con) <- binders
       ]
+    selfName = fmap unLoc (hsmodName modl)
+    moduleItems = case hsmodExports modl of
+      Nothing -> []
+      Just ies -> [unLoc lm | IEModuleContents _ lm <- map unLoc (unLoc ies)]
+    reExportedModules = filter (\m -> Just m /= selfName) moduleItems
+    -- @module Self@ exports every top-level binder of the module itself.
+    selfReExported = any (\m -> Just m == selfName) moduleItems
+
     exported = case hsmodExports modl of
       Nothing -> Map.keysSet allSyms
+      Just _ | selfReExported -> Map.keysSet allSyms
       Just ies ->
         Set.intersection (Map.keysSet allSyms) $
           Set.fromList (concatMap (exportedKeys . unLoc) (unLoc ies))
 
     -- Keys named by one export item. Non-name items (docs, sections) are
-    -- ignored; module re-exports are rejected earlier in the pipeline.
+    -- ignored; @module M@ re-exports are collected into
+    -- 'msReExportedModules' and resolved by 'Bundler.ReExport'.
     exportedKeys :: IE GhcPs -> [OccKey]
     exportedKeys ie = case ie of
       IEVar _ n _ -> [wrappedKey n]
@@ -123,6 +142,60 @@ moduleSymbols pf =
     bothNamespaces :: OccKey -> [OccKey]
     bothNamespaces (_, name) =
       filter (`Map.member` allSyms) [(NsValue, name), (NsData, name)]
+
+-- | The names a non-qualified import of local module @m@ brings into
+-- unqualified scope, honoring explicit and @hiding@ lists; each key is
+-- paired with the local module that actually defines it (following @m@'s
+-- own, already-resolved 'msReExported'). 'Left' is a listed name that @m@
+-- does not export.
+importVisibleOrigins ::
+  (ModuleName -> Maybe ModuleSymbols) ->
+  ModuleName ->
+  ModuleSymbols ->
+  ImportDecl GhcPs ->
+  Either String (Map OccKey ModuleName)
+importVisibleOrigins lookupSyms m syms imp = case ideclImportList imp of
+  Nothing -> Right allVisible
+  Just (interp, L _ items) -> do
+    listed <- Map.unions <$> traverse (itemOrigins . unLoc) items
+    pure $ case interp of
+      Exactly -> listed
+      EverythingBut -> allVisible `Map.withoutKeys` Map.keysSet listed
+  where
+    -- Own exports first: a name both defined and re-exported is its own.
+    allVisible =
+      Map.union
+        (Map.fromSet (const m) (msExported syms))
+        (msReExported syms)
+    wrappedKey = occKeyOf . ieWrappedName . unLoc
+
+    itemOrigins :: IE GhcPs -> Either String (Map OccKey ModuleName)
+    itemOrigins ie = case ie of
+      IEVar _ n _ -> checked [wrappedKey n]
+      IEThingAbs _ n _ -> checked [wrappedKey n]
+      IEThingAll _ n _ ->
+        let key@(_, name) = wrappedKey n
+         in checked (key : childrenOf key name)
+      IEThingWith _ n _ subs _ ->
+        checked (wrappedKey n : concatMap (claim . wrappedKey) subs)
+      _ -> Right Map.empty
+
+    -- Typos and private names fail loudly here rather than silently
+    -- staying unrenamed.
+    checked keys = case filter (`Map.notMember` allVisible) keys of
+      [] ->
+        Right . Map.fromList $
+          [(key, origin) | key <- keys, Just origin <- [Map.lookup key allVisible]]
+      (_, name) : _ -> Left name
+
+    -- Children of @T(..)@ live in the symbol table of T's defining module.
+    childrenOf key name = case Map.lookup key allVisible >>= lookupSyms of
+      Just osyms -> Map.findWithDefault [] name (msChildren osyms)
+      Nothing -> Map.findWithDefault [] name (msChildren syms)
+
+    -- A sub-name in @T(a, B)@ may be a field (value bucket) or a data con;
+    -- claim whichever is visible.
+    claim (_, name) = filter (`Map.member` allVisible) [(NsValue, name), (NsData, name)]
 
 -- | Binders of one top-level declaration:
 -- (key, kind, parent type/class name, owning data con for fields).

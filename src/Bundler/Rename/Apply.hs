@@ -13,6 +13,7 @@ import Bundler.Error
 import Bundler.Parse
 import Bundler.Rename.Plan
 import Bundler.Symbols
+import Data.Containers.ListUtils (nubOrd)
 import Data.Generics (Data, everywhereM, extM, gmapM, mkM)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -132,50 +133,28 @@ mkResolveEnv plan symsOf self pf = do
         && ideclQualified imp == NotQualified
         && null (unqualExtOf imp)
 
+    -- Names one import brings into unqualified scope, attributed to the
+    -- module that defines them (following re-exports) and mapped to their
+    -- planned new names.
     unqualsOf :: ImportDecl GhcPs -> M [Map OccKey [(ModuleName, String)]]
     unqualsOf imp
       | NotQualified <- ideclQualified imp,
         Just syms <- Map.lookup m symsOf = do
-          keys <- visibleKeys syms
+          origins <-
+            either
+              (\name -> Left (NotExported name (moduleNameString m)))
+              Right
+              (importVisibleOrigins (`Map.lookup` symsOf) m syms imp)
           pure
             [ Map.fromList
-                [ (key, [(m, new)])
-                | key <- Set.toList keys,
-                  Just new <- [lookupPlanned key]
+                [ (key, [(origin, new)])
+                | (key, origin) <- Map.toList origins,
+                  Just new <- [Map.lookup origin (rpByModule plan) >>= Map.lookup key]
                 ]
             ]
       | otherwise = pure []
       where
         m = unLoc (ideclName imp)
-        lookupPlanned key = Map.lookup m (rpByModule plan) >>= Map.lookup key
-
-        visibleKeys syms = case ideclImportList imp of
-          Nothing -> pure (msExported syms)
-          Just (interp, L _ items) -> do
-            listed <- Set.fromList . concat <$> traverse (itemKeys syms . unLoc) items
-            pure $ case interp of
-              Exactly -> listed
-              EverythingBut -> msExported syms `Set.difference` listed
-
-        -- Keys named by one import-list item, checked against the module's
-        -- exports so typos and private names fail loudly here rather than
-        -- silently staying unrenamed.
-        itemKeys :: ModuleSymbols -> IE GhcPs -> M [OccKey]
-        itemKeys syms ie = case ie of
-          IEVar _ n _ -> checked [wrappedKey n]
-          IEThingAbs _ n _ -> checked [wrappedKey n]
-          IEThingAll _ n _ ->
-            let key@(_, name) = wrappedKey n
-             in checked (key : Map.findWithDefault [] name (msChildren syms))
-          IEThingWith _ n _ subs _ ->
-            checked (wrappedKey n : concatMap (claim syms . wrappedKey) subs)
-          _ -> pure []
-          where
-            checked keys = case filter (`Set.notMember` msExported syms) keys of
-              [] -> pure keys
-              (_, name) : _ -> Left (NotExported name (moduleNameString m))
-        claim syms (_, name) =
-          filter (`Map.member` msAll syms) [(NsValue, name), (NsData, name)]
 
 -- | Names currently shadowed by enclosing lambda/let/where/case/do/
 -- comprehension binders.
@@ -229,16 +208,19 @@ applyRenames plan symsOf env decls = do
             Nothing -> case Map.lookup (occKeyOf rdr) (reUnqualExt env) of
               Just m -> Right (Qual (extAliasOf m) occ)
               Nothing -> Right rdr
-            Just [(_, new)] -> Right (unqual occ new)
-            Just several ->
-              Left
-                ( AmbiguousName
-                    (occNameString occ)
-                    (map (moduleNameString . fst) several)
-                )
+            -- One name may arrive via several imports (e.g. directly and
+            -- through a re-export module); same origin means no ambiguity.
+            Just entries -> case nubOrd entries of
+              [(_, new)] -> Right (unqual occ new)
+              several ->
+                Left
+                  ( AmbiguousName
+                      (occNameString occ)
+                      (map (moduleNameString . fst) several)
+                  )
       Qual q occ
         | Just m <- Map.lookup q (reQualLocal env) ->
-            case lookupPlan m (occKeyOf (Unqual occ)) of
+            case plannedFor m (occKeyOf (Unqual occ)) of
               Just new -> Right (unqual occ new)
               Nothing ->
                 Left
@@ -253,6 +235,15 @@ applyRenames plan symsOf env decls = do
     extAliasOf m = Map.findWithDefault m m (reExtAlias env)
 
     lookupPlan m key = Map.lookup m (rpByModule plan) >>= Map.lookup key
+
+    -- A name qualified by a local module may be one of its own binders or
+    -- something it re-exports from another local module.
+    plannedFor m key = case lookupPlan m key of
+      Just new -> Just new
+      Nothing -> do
+        syms <- Map.lookup m symsOf
+        origin <- Map.lookup key (msReExported syms)
+        lookupPlan origin key
     unqual occ new = mkRdrUnqual (mkOccName (occNameSpace occ) new)
 
     -- One equation/alternative: pattern binders scope over the patterns
@@ -422,7 +413,7 @@ resolveRdrModule plan env rdr = case rdr of
         Just self
     | otherwise ->
         case Map.lookup (nsKeyOf occ, occNameString occ) (reUnqualLocal env) of
-          Just [(m, _)] -> Just m
+          Just entries | [m] <- nubOrd (map fst entries) -> Just m
           _ -> Nothing
   _ -> Nothing
 

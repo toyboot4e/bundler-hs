@@ -10,6 +10,7 @@ import Bundler.Error
 import Bundler.Format
 import Bundler.Minify
 import Bundler.Parse
+import Bundler.ReExport
 import Bundler.Rename.Apply
 import Bundler.Rename.Plan
 import Bundler.RenameCmd
@@ -49,7 +50,8 @@ bundle cfg = runExceptT $ do
   userFile <- ExceptT (parseUserFile userFlags (cfgInput cfg) src)
   srcDirs <- traverse dirDefaults (cfgSrcDirs cfg)
   locals <- ExceptT (discoverLocalModules [(d, flags) | (d, flags, _) <- srcDirs] userFile)
-  let withSyms = [(lm, moduleSymbols (lmParsed lm)) | lm <- locals]
+  let withSyms0 = [(lm, moduleSymbols (lmParsed lm)) | lm <- locals]
+  withSyms <- ExceptT (pure (resolveReExports withSyms0))
   mrenamer <- liftIO (traverse startRenamer (cfgRenameCmd cfg))
   plan <- ExceptT (mkRenamePlan mrenamer userFile (moduleSymbols userFile) withSyms)
   let symsOf = Map.fromList [(lmName lm, syms) | (lm, syms) <- withSyms]

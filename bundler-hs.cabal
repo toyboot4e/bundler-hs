@@ -35,6 +35,7 @@ library
     Bundler.Format
     Bundler.Minify
     Bundler.Parse
+    Bundler.ReExport
     Bundler.Rename.Apply
     Bundler.Rename.Plan
     Bundler.RenameCmd

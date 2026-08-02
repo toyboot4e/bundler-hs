@@ -28,7 +28,8 @@ data BundleError
     -- in the bundle's flat namespace.
     NameCollision String [String]
   | -- | A qualified reference to a local module names something that
-    -- module does not define (likely a re-export, unsupported in v1).
+    -- module neither defines nor re-exports from another local module
+    -- (likely a re-export of an external module, which cannot be followed).
     UnknownQualifiedName String String
   | -- | An unqualified name is importable from several local modules.
     AmbiguousName String [String]
