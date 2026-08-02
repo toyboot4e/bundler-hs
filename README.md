@@ -1,12 +1,10 @@
 # bundler-hs
 
-`bundler-hs` is a Haskell source file bundler for compettitive programming contests. It handles qualified imports, so `A.f` and `B.f` can coexists, bundled as `fA` and `fB`.
-
-It's built on [ghc-lib-parser](https://hackage.haskell.org/package/ghc-lib-parser), so it parses whatever recent GHC parses (GHC2021/GHC2024).
+`bundler-hs` is a Haskell source file bundler for competitive programming contests. It handles qualified imports, and `A.f` and `B.f` can coexist, bundled as `fA` and `fB`.
 
 ## Usage
 
-```console
+```sh
 $ bundler-hs Main.hs --src path/to/your/library > submission.hs
 ```
 
@@ -27,8 +25,9 @@ Each file is parsed with the union of its own `LANGUAGE` pragmas and the `defaul
 
 ## Guarantees and limits
 
-- *Comments and formatting are not preserved* (output is pretty-printed from the renamed AST).
-- CPP: in library modules, `#` directives are *evaluated at bundle time*. In the user's file, directives sitting between top-level declarations are preserved.
+- **Formatting is not preserved**.
+- **Library comments are not preserved**.
+- In library modules, CPP's `#` directives are **evaluated at bundle time**. In the user's file, directives sitting between top-level declarations are preserved.
 - Not supported (hard error): import cycles between local modules, Template Haskell splices in library modules.
 
 ## Development
