@@ -32,7 +32,7 @@ Each file is parsed with the union of its own `LANGUAGE` pragmas and the `defaul
 
 - **Formatting is not preserved**.
 - **Library comments are not preserved**.
-- Not supported (hard error): import cycles between local modules, Template Haskell splices in library modules.
+- Not supported (hard error): `.hs-boot` files / `{-# SOURCE #-}` imports (the only way GHC accepts module cycles), Template Haskell splices in library modules.
 
 ## Development
 
