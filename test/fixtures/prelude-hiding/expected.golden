@@ -1,0 +1,18 @@
+module Main
+  ( main
+  ) where
+
+import Prelude
+
+main :: IO ()
+main = do
+  -- Prelude's read must survive the bundling.
+  print (read "42" :: Int)
+  print (readPairReader "abc")
+
+-- ### Reader
+readReader :: String -> Int
+readReader s = length s
+
+readPairReader :: String -> (Int, Int)
+readPairReader s = (readReader s, readReader (reverse s))

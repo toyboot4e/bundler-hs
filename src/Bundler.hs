@@ -86,13 +86,26 @@ bundle cfg = runExceptT $ do
         "note: user code could not be carried verbatim; comments are dropped"
     _ -> pure ()
   let keptOpen = nubOrd (map renderImport (concatMap reOpenExtImports libEnvs))
+      -- An explicit import of Prelude - qualified or not - cancels the
+      -- implicit one for the whole merged module. When a library's rewritten
+      -- references force a canonical Prelude import and the user's file has
+      -- no Prelude import of its own to govern the unqualified scope, import
+      -- it unqualified (which grants qualified access too) so the user's
+      -- code keeps the implicit Prelude.
+      userImportsPrelude =
+        any
+          ((== mkModuleName "Prelude") . unLoc . ideclName . unLoc)
+          (hsmodImports (unLoc (pfModule userFile)))
+      extImportLine m alias =
+        prefix
+          <> moduleNameString m
+          <> (if alias == m then "" else " as " <> moduleNameString alias)
+        where
+          prefix
+            | m == mkModuleName "Prelude" && not userImportsPrelude = "import "
+            | otherwise = "import qualified "
       extImportLines =
-        [ "import qualified "
-            <> moduleNameString m
-            <> (if alias == m then "" else " as " <> moduleNameString alias)
-        | (m, alias) <- extAliases
-        ]
-          <> keptOpen
+        [extImportLine m alias | (m, alias) <- extAliases] <> keptOpen
       out =
         assemble
           (cfgEmbedPosition cfg)

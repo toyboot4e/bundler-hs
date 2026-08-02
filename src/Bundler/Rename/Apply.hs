@@ -24,7 +24,7 @@ import Data.Generics (Data, everywhereM, extM, gmapM, mkM)
 import Data.List (intercalate)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (fromMaybe)
+import Data.Maybe (fromMaybe, mapMaybe)
 import Data.Set (Set)
 import Data.Set qualified as Set
 import GHC.Hs
@@ -96,6 +96,7 @@ mkResolveEnv ::
   Either BundleError ResolveEnv
 mkResolveEnv plan symsOf self pf = do
   unqual <- mconcat <$> traverse (unqualsOf . unLoc) imports
+  let unqualLocal = Map.unionsWith (<>) unqual
   pure
     ResolveEnv
       { reSelf = self,
@@ -106,10 +107,13 @@ mkResolveEnv plan symsOf self pf = do
               let m = unLoc (ideclName imp),
               m `Map.member` symsOf
             ],
-        reUnqualLocal = Map.unionsWith (<>) unqual,
+        reUnqualLocal = unqualLocal,
         reQualExt = if isLibrary then Map.fromList (concatMap (qualExtOf . unLoc) imports) else Map.empty,
         reUnqualExt = if isLibrary then Map.fromList (concatMap (unqualExtOf . unLoc) imports) else Map.empty,
-        reOpenExtImports = if isLibrary then filter (isOpenExt . unLoc) imports else [],
+        reOpenExtImports =
+          if isLibrary
+            then mapMaybe (prunePrelude unqualLocal) (filter (isOpenExt . unLoc) imports)
+            else [],
         reExtAlias = Map.empty
       }
   where
@@ -154,6 +158,61 @@ mkResolveEnv plan symsOf self pf = do
       isExternal imp
         && ideclQualified imp == NotQualified
         && null (unqualExtOf imp)
+
+    -- In the merged module any explicit Prelude import cancels the implicit
+    -- one for the entire bundle, so a library's kept-verbatim
+    -- @import Prelude hiding (...)@ would hide those names from the user's
+    -- code too. A hidden name whose clashing definition is renamed anyway -
+    -- defined by this module, or reached through a local import whose uses
+    -- are rewritten - no longer needs hiding and leaves the list; when the
+    -- list empties the import is dropped. An explicit list brings in a
+    -- subset of what the implicit Prelude provides, so it is dropped
+    -- outright. Hiding lists of other modules only restrict that module's
+    -- own exports and are kept as they are.
+    prunePrelude ::
+      Map OccKey [(ModuleName, String)] ->
+      LImportDecl GhcPs ->
+      Maybe (LImportDecl GhcPs)
+    prunePrelude unqualLocal limp@(L l imp)
+      | unLoc (ideclName imp) /= mkModuleName "Prelude" = Just limp
+      | Just (EverythingBut, L ll items) <- ideclImportList imp =
+          case filter (not . obsoleteHiding unqualLocal . unLoc) items of
+            [] -> Nothing
+            kept -> Just (L l imp {ideclImportList = Just (EverythingBut, L ll kept)})
+      | otherwise = Nothing
+
+    -- Is hiding this item obsolete once the bundle's renames are applied?
+    -- A @T(..)@ item also hides Prelude's children of T, which are
+    -- unknowable; the module's own children of T are the closest stand-in.
+    obsoleteHiding unqualLocal ie = case ie of
+      IEVar _ n _ -> covered (wrappedKey n)
+      IEThingAbs _ n _ -> covered (wrappedKey n)
+      IEThingAll _ n _ ->
+        let key@(_, name) = wrappedKey n
+         in renamedAway key && all renamedAway (selfChildren name)
+      IEThingWith _ n _ subs _ ->
+        renamedAway (wrappedKey n)
+          && all
+            (\(_, s) -> any renamedAway [(NsValue, s), (NsData, s)])
+            (map wrappedKey subs)
+      _ -> False
+      where
+        covered key = renamedAway key || localUse key
+        -- Renamed to a different name: the definition no longer occupies
+        -- the original one (operators keep theirs and stay hidden).
+        renamedAway key@(_, name) = case Map.lookup key renamedHere of
+          Just new -> new /= name
+          Nothing -> False
+        -- Unambiguously provided by a local import: uses are rewritten to
+        -- the planned name.
+        localUse key = case Map.lookup key unqualLocal of
+          Just [_] -> True
+          _ -> False
+
+    renamedHere = fromMaybe Map.empty (self >>= (`Map.lookup` rpByModule plan))
+
+    selfChildren name =
+      fromMaybe [] (self >>= (`Map.lookup` symsOf) >>= Map.lookup name . msChildren)
 
     -- Names one import brings into unqualified scope, attributed to the
     -- module that defines them (following re-exports) and mapped to their

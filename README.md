@@ -23,11 +23,15 @@ import qualified Data.Deque          -- push  ->  pushDataDeque (no alias)
 
 Each file is parsed with the union of its own `LANGUAGE` pragmas and the `default-language` / `default-extensions` of the cabal project it belongs to. The bundle emits the additive union of all of them; conflicting combinations can still fail to compile, which the bundler cannot prevent.
 
-## Guarantees and limits
+## Rules
+
+- In library modules, `import Prelude hiding (…)` lists are pruned: a hidden name whose conflicting definition is renamed away leaves the list, and the import is dropped once the list empties, so the user's code keeps the implicit Prelude. Names hidden for other reasons stay hidden (with a warning).
+- In library modules, CPP's `#` directives are **evaluated at bundle time**. In the user's file, directives sitting between top-level declarations are preserved.
+
+## Limitations
 
 - **Formatting is not preserved**.
 - **Library comments are not preserved**.
-- In library modules, CPP's `#` directives are **evaluated at bundle time**. In the user's file, directives sitting between top-level declarations are preserved.
 - Not supported (hard error): import cycles between local modules, Template Haskell splices in library modules.
 
 ## Development
