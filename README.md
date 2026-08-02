@@ -28,8 +28,8 @@ Available options:
   FILE                     Haskell source file to bundle
   --src DIR                Source directory of local library modules
                            (repeatable)
-  --rename-cmd CMD         External command deciding renamed names (TSV protocol
-                           on stdin/stdout)
+  --rename-cmd CMD         External command deciding renamed names (protocol at
+                           the bottom of this help)
   --format-cmd CMD         Format with a shell command (stdin to stdout) instead
                            of the builtin hindent, e.g. 'ormolu
                            --stdin-input-file Bundle.hs'
@@ -91,7 +91,7 @@ import qualified SuffixArray as SA   -- SuffixArray.build  ->  buildSA
 import qualified Data.Deque          -- push  ->  pushDataDeque (no alias)
 ```
 
-This behavior can be customized with the `--rename-cmd` option.
+This behavior can be customized with the `--rename-cmd` option; its query protocol and an example script are at the bottom of the `--help` output above.
 
 ## Language extensions
 

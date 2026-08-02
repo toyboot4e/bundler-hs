@@ -94,7 +94,7 @@ configParser =
       ( strOption
           ( long "rename-cmd"
               <> metavar "CMD"
-              <> help "External command deciding renamed names (TSV protocol on stdin/stdout)"
+              <> help "External command deciding renamed names (protocol at the bottom of this help)"
           )
       )
     <*> formatMode
