@@ -22,7 +22,19 @@
           system:
           let
             pkgs = nixpkgs.legacyPackages.${system};
-            pkg = pkgs.haskellPackages.callCabal2nix "bundler-hs" ./. { };
+            # Only Haskell-relevant files feed the build, so edits to
+            # README.md, Justfile, flake.nix, etc. don't trigger rebuilds.
+            src = nixpkgs.lib.fileset.toSource {
+              root = ./.;
+              fileset = nixpkgs.lib.fileset.unions [
+                ./src
+                ./app
+                ./test
+                ./bundler-hs.cabal
+                ./cabal.project
+              ];
+            };
+            pkg = pkgs.haskellPackages.callCabal2nix "bundler-hs" src { };
             treefmtEval = treefmt-nix.lib.evalModule pkgs ./treefmt.nix;
           in
           f { inherit pkgs pkg treefmtEval; }
