@@ -4,19 +4,22 @@
 
 ## Usage
 
-```console
-bundler-hs - Haskell source bundler for competitive programming
-
-Usage: bundler-hs FILE [--src DIR] [--rename-cmd CMD] [--format-cmd CMD | --no-format] [--minify] [--minify-lib]
-                  [--minify-user-code] [--minify-import] [--minify-language-extensions] [--embed-position after|before]
-
-  Expand local library imports into one self-contained Haskell file on stdout
-```
-
 Basic usage:
 
 ```sh
 $ bundler-hs Main.hs --src path/to/your/library > submission.hs
+```
+
+Options:
+
+```console
+bundler-hs - Haskell source bundler for competitive programming
+
+Usage: bundler-hs FILE [--src DIR] [--rename-cmd CMD] [--format-cmd CMD | --no-format] [--minify]
+                  [--minify-lib] [--minify-user-code] [--minify-import]
+                  [--minify-language-extensions] [--embed-position after|before]
+
+  Expand local library imports into one self-contained Haskell file on stdout
 ```
 
 See `bundler-hs --help` for details.
@@ -32,7 +35,7 @@ import qualified SuffixArray as SA   -- SuffixArray.build  ->  buildSA
 import qualified Data.Deque          -- push  ->  pushDataDeque (no alias)
 ```
 
-This behavior can be customized with the `--rename-cmd` option; its query protocol and an example script are at the bottom of `bundler-hs --help`.
+This behavior can be customized with the `--rename-cmd` option.
 
 ## Language extensions
 

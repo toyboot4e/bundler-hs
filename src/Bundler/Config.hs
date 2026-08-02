@@ -199,7 +199,7 @@ footerNotes =
 -- | Parser preferences shared by the executable and the test harness:
 -- optparse wraps at 80 columns by default, which is too narrow.
 parserPrefs :: ParserPrefs
-parserPrefs = prefs (columns 120)
+parserPrefs = prefs (columns 100)
 
 -- | Parse a raw argument list (used by the test harness; the executable
 -- uses 'configParserInfo' directly).
