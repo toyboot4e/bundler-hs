@@ -135,7 +135,7 @@ minifyOptions =
   combine
     <$> switch
       ( long "minify"
-          <> help "Minify everything: shorthand for all --minify-* flags"
+          <> help "Minify everything except your own code: shorthand for --minify-lib --minify-import --minify-language-extensions"
       )
     <*> switch
       ( long "minify-lib"
@@ -155,7 +155,7 @@ minifyOptions =
       )
   where
     combine everything lib user imports pragmas
-      | everything = MinifyOptions True True True True
+      | everything = MinifyOptions True user True True
       | otherwise = MinifyOptions lib user imports pragmas
 
 configParserInfo :: ParserInfo Config
@@ -179,9 +179,9 @@ footerNotes =
         [ "Minification:",
           "  The --minify-* flags are per-section and compose with formatting:",
           "  minified sections become layout-free lines (comments dropped),",
-          "  everything else keeps its formatted layout. The usual submission",
-          "  setup is --minify-lib: your own code stays readable while the",
-          "  expanded library shrinks. --minify is all sections at once.",
+          "  everything else keeps its formatted layout. --minify is every",
+          "  section except your own code: it stays readable while the rest",
+          "  shrinks (add --minify-user-code to shrink it too).",
           "",
           "--format-cmd is a plain filter: bundle on stdin, formatted bundle on stdout.",
           "",

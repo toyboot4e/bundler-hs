@@ -1,3 +1,53 @@
 module Main ( main ) where
-lam :: (Int -> Int) -> Int ; lam = \f -> f (gShadow 1) ; letBound :: Int ; letBound = let { f = (+ 2) } in f (gShadow 1) ; whereBound :: Int ; whereBound = f' + gShadow 3 where { f' = fShadow 10 ; localHelper f = f 4 } ; caseAlt :: Maybe (Int -> Int) -> Int ; caseAlt m = case m of { Just f -> f (gShadow 5) ; Nothing -> fShadow 6 } ; doBind :: IO Int ; doBind = do { let { g' = gShadow } ; f <- pure g' ; pure (f 7) } ; comprehension :: [Int] ; comprehension = [f | f <- map gShadow [1, 2, 3], f > 0] ; patternGuard :: Maybe Int -> Int ; patternGuard m | Just f <- m, f > 0 = f + gShadow 8 | otherwise = fShadow 9 ; main :: IO () ; main = do { n <- doBind ; print [ lam succ , letBound , whereBound , caseAlt Nothing , n , sum comprehension , patternGuard (Just 1) ] }
-fShadow :: Int -> Int ; fShadow = (+ 100) ; gShadow :: Int -> Int ; gShadow x = inner (\ f -> f x) where { inner k = k step ; step y = fShadow y - 100 }
+
+-- Every f below except the imported one is a local binder and must NOT be
+-- renamed; the g calls resolve to the import and MUST be.
+lam :: (Int -> Int) -> Int
+lam = \f -> f (gShadow 1)
+
+letBound :: Int
+letBound =
+  let f = (+ 2)
+   in f (gShadow 1)
+
+whereBound :: Int
+whereBound = f' + gShadow 3
+  where
+    f' = fShadow 10
+    localHelper f = f 4
+
+caseAlt :: Maybe (Int -> Int) -> Int
+caseAlt m =
+  case m of
+    Just f -> f (gShadow 5)
+    Nothing -> fShadow 6
+
+doBind :: IO Int
+doBind = do
+  let g' = gShadow
+  f <- pure g'
+  pure (f 7)
+
+comprehension :: [Int]
+comprehension = [f | f <- map gShadow [1, 2, 3], f > 0]
+
+patternGuard :: Maybe Int -> Int
+patternGuard m
+  | Just f <- m
+  , f > 0 = f + gShadow 8
+  | otherwise = fShadow 9
+
+main :: IO ()
+main = do
+  n <- doBind
+  print
+    [ lam succ
+    , letBound
+    , whereBound
+    , caseAlt Nothing
+    , n
+    , sum comprehension
+    , patternGuard (Just 1)
+    ]
+
+fShadow :: Int -> Int ; fShadow = (+ 100) ; gShadow :: Int -> Int ; gShadow x = inner (\f -> f x) where { inner k = k step ; step y = fShadow y - 100 }

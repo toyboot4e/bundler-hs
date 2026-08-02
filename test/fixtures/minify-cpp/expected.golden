@@ -1,9 +1,15 @@
 {-# LANGUAGE CPP #-}
 module Main ( main ) where
 #ifdef LOCAL
-debug :: Show a => a -> IO () ; debug = print
+debug :: Show a => a -> IO ()
+debug = print
 #else
-debug :: Show a => a -> IO () ; debug _ = pure ()
+debug :: Show a => a -> IO ()
+debug _ = pure ()
 #endif
-main :: IO () ; main = do { debug (incAlg 1) ; print (incAlg 41) }
+main :: IO ()
+main = do
+  debug (incAlg 1)
+  print (incAlg 41)
+
 incAlg :: Int -> Int ; incAlg = (+ 1)

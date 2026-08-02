@@ -34,7 +34,9 @@ Available options:
                            of the builtin hindent, e.g. 'ormolu
                            --stdin-input-file Bundle.hs'
   --no-format              Emit the raw pretty-printer output without formatting
-  --minify                 Minify everything: shorthand for all --minify-* flags
+  --minify                 Minify everything except your own code: shorthand for
+                           --minify-lib --minify-import
+                           --minify-language-extensions
   --minify-lib             Minify the expanded library code into one layout-free
                            line (comments dropped)
   --minify-user-code       Minify your own declarations too
