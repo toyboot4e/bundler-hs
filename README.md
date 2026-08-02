@@ -1,6 +1,6 @@
 # bundler-hs
 
-`bundler-hs` is a Haskell source file bundler for competitive programming contests. It handles qualified imports, and `A.f` and `B.f` can coexist, bundled as `fA` and `fB`.
+`bundler-hs` is a Haskell source file bundler for competitive programming contests. It handles qualified imports so that `A.f` and `B.f` can coexist, bundled as `fA` and `fB`.
 
 ## Usage
 
@@ -25,14 +25,14 @@ Each file is parsed with the union of its own `LANGUAGE` pragmas and the `defaul
 
 ## Rules
 
-- In library modules, `import Prelude hiding (…)` lists are pruned: a hidden name whose conflicting definition is renamed away leaves the list, and the import is dropped once the list empties, so the user's code keeps the implicit Prelude. Names hidden for other reasons stay hidden (with a warning).
+- In library modules, `import Prelude hiding (…)` lists are pruned if the conflicting items are renamed. Names hidden for other reasons stay hidden (with a warning).
 - In library modules, CPP's `#` directives are **evaluated at bundle time**. In the user's file, directives sitting between top-level declarations are preserved.
 
 ## Limitations
 
 - **Formatting is not preserved**.
 - **Library comments are not preserved**.
-- Not supported (hard error): `.hs-boot` files / `{-# SOURCE #-}` imports (the only way GHC accepts module cycles), Template Haskell splices in library modules.
+- Not supported (hard error): [`.hs-boot`](https://downloads.haskell.org/ghc/latest/docs/users_guide/separate_compilation.html#mutually-recursive-modules-and-hs-boot-files) files and the [`{-# SOURCE #-}`](https://downloads.haskell.org/ghc/latest/docs/users_guide/exts/pragmas.html#source-pragma) pragma, Template Haskell splices in library modules.
 
 ## Development
 
