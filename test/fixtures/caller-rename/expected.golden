@@ -4,7 +4,6 @@ module Main
   ( main
   ) where
 
--- ### (user code)
 -- Caller-side references in every position: direct call, backtick infix,
 -- partial application, type-level, pattern, guard, where, comprehension.
 direct :: Int

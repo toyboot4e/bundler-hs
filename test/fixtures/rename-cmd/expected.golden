@@ -4,7 +4,6 @@ module Main
 
 import qualified Data.Map.Strict as DataMapStrict
 
--- ### (user code)
 main :: IO ()
 main = do
   print (f_A 1)

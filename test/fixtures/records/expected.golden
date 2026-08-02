@@ -5,7 +5,6 @@ module Main
   ( main
   ) where
 
--- ### (user code)
 shift :: PointRec -> PointRec
 shift p = p {pxRec = pxRec p + 1}
 

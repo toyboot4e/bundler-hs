@@ -2,7 +2,6 @@ module Main
   ( main
   ) where
 
--- ### (user code)
 -- An instance of the local class, in the user's file: the method binder
 -- must be renamed to match the renamed class method.
 data Box =

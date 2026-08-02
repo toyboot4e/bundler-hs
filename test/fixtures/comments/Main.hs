@@ -2,6 +2,8 @@
 module Main (main) where
 
 import Alpha (emptyHeap, f, push)
+
+-- a comment between imports
 import Data.List (sort)
 
 -- | Doc comment on the solver.

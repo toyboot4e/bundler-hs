@@ -9,7 +9,6 @@ import qualified Data.Map.Strict as MyMap
 import qualified Data.Map.Strict
 import qualified Data.Ord
 
--- ### (user code)
 main :: IO ()
 main = do
   print (countUpCountA [1, 2, 2, 3])

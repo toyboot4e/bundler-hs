@@ -2,7 +2,6 @@ module Main
   ( main
   ) where
 
--- ### (user code)
 main :: IO ()
 main = do
   let h = pushA 1 emptyHeapA

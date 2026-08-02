@@ -1,8 +1,7 @@
 module Main ( main ) where
 import Data.List ( sort )
 
--- ### (user code)
-
+-- a comment between imports
 -- | Doc comment on the solver.
 solve :: [Int] -> Int
 solve xs = fAlpha (foldr pushAlpha emptyHeapAlpha (sort xs)) -- trailing comment

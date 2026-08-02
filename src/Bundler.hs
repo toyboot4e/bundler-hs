@@ -21,7 +21,7 @@ import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except (ExceptT (..), catchE, runExceptT, throwE)
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Containers.ListUtils (nubOrd)
-import Data.List (dropWhileEnd, intercalate, intersect)
+import Data.List (dropWhileEnd, intercalate, intersect, sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
@@ -137,10 +137,11 @@ bundle cfg = runExceptT $ do
         | otherwise = pure formatted
   -- A formatting failure must not lose the (already parse-checked)
   -- bundle: save it and tell the user where it went.
-  (formatStage >>= minifyStage) `catchE` \err -> do
-    path <- liftIO (saveUnformatted checked)
-    liftIO (hPutStrLn stderr ("note: the unformatted bundle was saved to " <> path))
-    throwE err
+  fmap stripUserBanner $
+    (formatStage >>= minifyStage) `catchE` \err -> do
+      path <- liftIO (saveUnformatted checked)
+      liftIO (hPutStrLn stderr ("note: the unformatted bundle was saved to " <> path))
+      throwE err
   where
     -- Formatters are arbitrary; make sure the result is still Haskell.
     reparseAs cmd formatted = do
@@ -177,12 +178,26 @@ bundle cfg = runExceptT $ do
 declsOf :: ParsedFile -> [GHC.Hs.LHsDecl GHC.Hs.GhcPs]
 declsOf pf = hsmodDecls (unLoc (pfModule pf))
 
+-- | The user-code banner is an internal marker (the granular minifier
+-- tells sections apart by it); it has no place in the final output. One
+-- adjacent blank line goes with it so chunk spacing stays single.
+stripUserBanner :: String -> String
+stripUserBanner = unlines . go . lines
+  where
+    go (l : rest)
+      | dropWhile (== ' ') l == "-- ### (user code)" = go (dropOneBlank rest)
+      | otherwise = l : go rest
+    go [] = []
+    dropOneBlank ("" : rest) = rest
+    dropOneBlank rest = rest
+
 -- | The user file's own code as original text with the rename patches
 -- applied: everything from the first top-level declaration (or the first
 -- preserved directive below the header/import section) to the end of the
--- file. Directives above that point are prepended, matching their anchor
--- before the first declaration. 'Nothing' when there is nothing to slice
--- or a patch cannot be applied cleanly.
+-- file. Directives above that point, and comment lines sitting between
+-- imports (the imports themselves are rebuilt), are prepended in their
+-- original order. 'Nothing' when there is nothing to slice or a patch
+-- cannot be applied cleanly.
 sliceUserRegion :: ParsedFile -> [Patch] -> Maybe String
 sliceUserRegion pf patches = do
   let modl = unLoc (pfModule pf)
@@ -214,11 +229,33 @@ sliceUserRegion pf patches = do
         | not (null importEnds) = 1 + maximum importEnds
         | otherwise = max afterHeader (minimum (declStarts <> dirStarts))
   patched <- applyPatches patches (pfSource pf)
-  let region =
+  let patchedLines = lines patched
+      region =
         dropWhileEnd null . dropWhile null $
-          drop (start - 1) (lines patched)
-      preDirs = [text | (_, line, text) <- pfDirectives pf, line < start]
-  pure (intercalate "\n" (preDirs <> region))
+          drop (start - 1) patchedLines
+      importSpans =
+        [ (srcSpanStartLine r, srcSpanEndLine r)
+        | i <- hsmodImports modl,
+          RealSrcSpan r _ <- [GHC.Hs.getLocA i]
+        ]
+      directiveLines = Set.fromList [line | (_, line, _) <- pfDirectives pf]
+      -- Comment lines between imports: within the import section, not
+      -- covered by any import's span, not blank, and not a preserved
+      -- directive (those are re-emitted below).
+      importComments
+        | null importSpans = []
+        | otherwise =
+            [ (n, l)
+            | (n, l) <- zip [1 ..] patchedLines,
+              n >= minimum (map fst importSpans),
+              n < start,
+              not (any (\(s, e) -> n >= s && n <= e) importSpans),
+              n `Set.notMember` directiveLines,
+              not (null (dropWhile (== ' ') l))
+            ]
+      preDirs = [(line, text) | (_, line, text) <- pfDirectives pf, line < start]
+      pre = map snd (sortOn fst (importComments <> preDirs))
+  pure (intercalate "\n" (pre <> region))
 
 -- | Stitch the output text together from pretty-printed pieces: pragma
 -- union, user module header, merged imports, then the (renamed)
