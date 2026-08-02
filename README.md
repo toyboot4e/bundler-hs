@@ -1,6 +1,6 @@
 # bundler-hs
 
-`bundler-hs` bundles a Haskell solution file and the local library modules it imports into a single, self-contained file, ready to submit to a competitive programming judge. Its distinguishing feature is support for qualified imports: `A.f` and `B.f` can coexist in the bundle, renamed to `fA` and `fB`.
+`bundler-hs` bundles a Haskell solution file and the local library modules it imports into a single file for competitive programming submissions. It handles qualified imports: `A.f` and `B.f` can coexist, renamed to `fA` and `fB`.
 
 ## Installation
 
@@ -14,7 +14,7 @@ Or, clone the repository and run `cabal install`.
 
 ## Usage
 
-Give the bundler your solution file and the directory of your library; the bundled source is printed to stdout:
+Pass your solution file and your library directory; the bundle is printed to stdout:
 
 ```sh
 $ bundler-hs Main.hs --src path/to/your/library > submission.hs
@@ -41,7 +41,7 @@ In library modules, `import Prelude hiding (…)` lists are pruned if the confli
 
 ### Language extension unification
 
-The bundle carries the union of the `LANGUAGE` pragmas in effect for every file. For each file, that means its own pragmas plus the `default-language` / `default-extensions` of the cabal project it belongs to. Conflicting combinations can still fail to compile, which the bundler cannot prevent.
+The bundle emits the union of the `LANGUAGE` pragmas in effect for every file — each file's own pragmas plus the `default-language` / `default-extensions` of its cabal project. Conflicting combinations can still fail to compile, which the bundler cannot prevent.
 
 CPP is handled separately: in library modules, `#` directives are **evaluated at bundle time**, while in the user's file, directives between top-level declarations are preserved.
 
@@ -59,11 +59,11 @@ Other known limitations:
 
 - **Formatting is not preserved.**
 - **Library comments are not preserved.**
-- The following are not supported and cause a hard error: [`.hs-boot`](https://downloads.haskell.org/ghc/latest/docs/users_guide/separate_compilation.html#mutually-recursive-modules-and-hs-boot-files) files, the [`{-# SOURCE #-}`](https://downloads.haskell.org/ghc/latest/docs/users_guide/exts/pragmas.html#source-pragma) pragma, and Template Haskell splices in library modules.
+- Not supported (hard error): [`.hs-boot`](https://downloads.haskell.org/ghc/latest/docs/users_guide/separate_compilation.html#mutually-recursive-modules-and-hs-boot-files) files, the [`{-# SOURCE #-}`](https://downloads.haskell.org/ghc/latest/docs/users_guide/exts/pragmas.html#source-pragma) pragma, and Template Haskell splices in library modules.
 
 ## Development
 
-The following commands are available inside the dev shell (`direnv allow` or `nix develop`):
+Inside the dev shell (`direnv allow` or `nix develop`):
 
 ```console
 $ just build          # cabal build all
