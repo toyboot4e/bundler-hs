@@ -3,6 +3,8 @@ module Main
   ) where
 
 -- ### (user code)
+-- An instance of the local class, in the user's file: the method binder
+-- must be renamed to match the renamed class method.
 data Box =
   Box Int
 
@@ -10,6 +12,9 @@ instance PrettyP Box where
   prettyP (Box n) = "Box " <> prettyP n
   indentP _ = 2
 
+-- An instance of an EXTERNAL class (Show): its method binder must stay
+-- `show` even though the open import of Decoy puts a same-named local
+-- export in unqualified scope.
 newtype Tag =
   Tag Int
 

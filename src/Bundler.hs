@@ -15,12 +15,13 @@ import Bundler.Rename.Apply
 import Bundler.Rename.Plan
 import Bundler.RenameCmd
 import Bundler.Render
+import Bundler.SourcePatch (Patch, applyPatches)
 import Bundler.Symbols
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except (ExceptT (..), catchE, runExceptT, throwE)
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Containers.ListUtils (nubOrd)
-import Data.List (intercalate, intersect)
+import Data.List (dropWhileEnd, intercalate, intersect)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
@@ -29,7 +30,7 @@ import GHC.Hs (hsmodDecls, hsmodImports, ideclName)
 import GHC.Hs qualified
 import GHC.Types.Name.Occurrence (occNameString)
 import GHC.Types.Name.Reader (rdrNameOcc)
-import GHC.Types.SrcLoc (unLoc)
+import GHC.Types.SrcLoc (SrcSpan (..), srcSpanEndLine, srcSpanStartLine, unLoc)
 import Language.Haskell.Syntax.Module.Name (mkModuleName, moduleNameString)
 import System.Directory (getTemporaryDirectory)
 import System.Exit (ExitCode (..))
@@ -73,7 +74,17 @@ bundle cfg = runExceptT $ do
       [ ExceptT (pure ((,) lm <$> renameWith env (lmParsed lm)))
       | (lm, env) <- zip locals libEnvs
       ]
-  renamedUser <- ExceptT (pure (renameWith userEnv userFile))
+  (renamedUser, userPatches) <-
+    ExceptT (pure (applyRenamesPatched plan symsOf userEnv (declsOf userFile)))
+  -- The user's own section is carried as original source text with the
+  -- renames spliced in, so comments and formatting survive; when the
+  -- patches cannot be applied cleanly, fall back to pretty-printing.
+  let userSlice = sliceUserRegion userFile userPatches
+  case (userSlice, hsmodDecls (unLoc (pfModule userFile))) of
+    (Nothing, _ : _) ->
+      liftIO . hPutStrLn stderr $
+        "note: user code could not be carried verbatim; comments are dropped"
+    _ -> pure ()
   let keptOpen = nubOrd (map renderImport (concatMap reOpenExtImports libEnvs))
       extImportLines =
         [ "import qualified "
@@ -89,6 +100,7 @@ bundle cfg = runExceptT $ do
           [defs | (_, _, defs) <- srcDirs]
           userFile
           extImportLines
+          userSlice
           renamedUser
           renamedLocals
   case keptOpen of
@@ -165,6 +177,49 @@ bundle cfg = runExceptT $ do
 declsOf :: ParsedFile -> [GHC.Hs.LHsDecl GHC.Hs.GhcPs]
 declsOf pf = hsmodDecls (unLoc (pfModule pf))
 
+-- | The user file's own code as original text with the rename patches
+-- applied: everything from the first top-level declaration (or the first
+-- preserved directive below the header/import section) to the end of the
+-- file. Directives above that point are prepended, matching their anchor
+-- before the first declaration. 'Nothing' when there is nothing to slice
+-- or a patch cannot be applied cleanly.
+sliceUserRegion :: ParsedFile -> [Patch] -> Maybe String
+sliceUserRegion pf patches = do
+  let modl = unLoc (pfModule pf)
+      realEnd sp = case sp of
+        RealSrcSpan r _ -> [srcSpanEndLine r]
+        _ -> []
+      realStart sp = case sp of
+        RealSrcSpan r _ -> [srcSpanStartLine r]
+        _ -> []
+      afterHeader =
+        1
+          + maximum
+            ( 0
+                : concatMap (realEnd . GHC.Hs.getLocA) (hsmodImports modl)
+                  <> concatMap (realEnd . GHC.Hs.getLocA) (maybe [] pure (GHC.Hs.hsmodName modl))
+                  <> concatMap (realEnd . GHC.Hs.getLocA) (maybe [] pure (GHC.Hs.hsmodExports modl))
+            )
+      importEnds = concatMap (realEnd . GHC.Hs.getLocA) (hsmodImports modl)
+      declStarts = concatMap (realStart . GHC.Hs.getLocA) (hsmodDecls modl)
+      dirStarts = [line | (_, line, _) <- pfDirectives pf, line >= afterHeader]
+  case declStarts <> dirStarts of
+    [] -> Nothing
+    _ -> Just ()
+  -- With imports present the region can start right after them, keeping
+  -- comments above the first declaration. Without any there is no reliable
+  -- lower bound (a header's `where` may sit on its own line), so start at
+  -- the first declaration.
+  let start
+        | not (null importEnds) = 1 + maximum importEnds
+        | otherwise = max afterHeader (minimum (declStarts <> dirStarts))
+  patched <- applyPatches patches (pfSource pf)
+  let region =
+        dropWhileEnd null . dropWhile null $
+          drop (start - 1) (lines patched)
+      preDirs = [text | (_, line, text) <- pfDirectives pf, line < start]
+  pure (intercalate "\n" (preDirs <> region))
+
 -- | Stitch the output text together from pretty-printed pieces: pragma
 -- union, user module header, merged imports, then the (renamed)
 -- declarations of every local module in dependency order and finally the
@@ -175,10 +230,11 @@ assemble ::
   [ProjectDefaults] ->
   ParsedFile ->
   [String] ->
+  Maybe String ->
   [GHC.Hs.LHsDecl GHC.Hs.GhcPs] ->
   [(LocalModule, [GHC.Hs.LHsDecl GHC.Hs.GhcPs])] ->
   String
-assemble embedPos userDefaults libDefaults userFile extImportLines userDecls locals =
+assemble embedPos userDefaults libDefaults userFile extImportLines userSlice userDecls locals =
   intercalate "\n\n" (filter (not . null) chunks) <> "\n"
   where
     chunks =
@@ -197,10 +253,14 @@ assemble embedPos userDefaults libDefaults userFile extImportLines userDecls loc
       EmbedAfter -> [userChunk] <> map localChunk locals
       EmbedBefore -> map localChunk locals <> [userChunk]
 
-    -- The user's declarations, with any preserved CPP directive lines
-    -- re-emitted at the declaration boundaries they came from. A signature
-    -- merges with its binding unless directives separate them.
-    userPieces = go (0 :: Int) userDecls
+    -- The user's declarations: the patched original text when available
+    -- (directives included), otherwise pretty-printed with any preserved
+    -- CPP directive lines re-emitted at the declaration boundaries they
+    -- came from. A signature merges with its binding unless directives
+    -- separate them.
+    userPieces = case userSlice of
+      Just text -> [text]
+      Nothing -> go (0 :: Int) userDecls
       where
         go i [] = dirPieces i
         go i (d : ds) =
@@ -213,7 +273,7 @@ assemble embedPos userDefaults libDefaults userFile extImportLines userDecls loc
         dirPieces i = case directivesAt i of
           [] -> []
           ts -> [intercalate "\n" ts]
-    directivesAt i = [text | (j, text) <- pfDirectives userFile, j == i]
+    directivesAt i = [text | (j, _, text) <- pfDirectives userFile, j == i]
 
     pragmas =
       nubOrd . concat $

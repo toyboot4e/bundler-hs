@@ -53,11 +53,18 @@ data ParsedFile = ParsedFile
     pfModule :: Located (HsModule GhcPs),
     pfDynFlags :: DynFlags,
     pfPragmas :: [String],
-    -- | Preserved CPP directive lines of the user's file, each anchored to
-    -- the index of the top-level declaration it precedes (an index equal to
-    -- the number of declarations means \"after the last one\"). Always
-    -- empty for library files, whose directives are evaluated instead.
-    pfDirectives :: [(Int, String)]
+    -- | Preserved CPP directive lines of the user's file, as
+    -- @(declaration index, original line number, text)@: each directive is
+    -- anchored to the index of the top-level declaration it precedes (an
+    -- index equal to the number of declarations means \"after the last
+    -- one\"). Always empty for library files, whose directives are
+    -- evaluated instead.
+    pfDirectives :: [(Int, Int, String)],
+    -- | The source text the declaration spans refer to: the original file,
+    -- except when CPP was evaluated (then the preprocessed text). For the
+    -- directive-preserving parse the original still lines up, because
+    -- directives were only blanked in place and never cut a declaration.
+    pfSource :: String
   }
 
 -- | How to treat CPP @#@ directives when the raw parse fails.
@@ -103,7 +110,7 @@ parseWith cppMode dflags path rawSrc = do
       pure (Left (ParseError path err))
     Right flags ->
       case parseFile path flags src of
-        POk _ modl -> pure (Right (mkParsed flags modl []))
+        POk _ modl -> pure (Right (mkParsed flags modl [] src))
         -- A file that merely enables CPP but contains no # directives is
         -- ordinary Haskell and parses directly. Real directives make the
         -- raw parse fail and are handled per 'CppHandling'.
@@ -113,7 +120,7 @@ parseWith cppMode dflags path rawSrc = do
                 | Just (stripped, directives) <- stripDirectives src,
                   POk _ modl <- parseFile path flags stripped,
                   Just anchored <- anchorDirectives modl directives ->
-                    pure (Right (mkParsed flags modl anchored))
+                    pure (Right (mkParsed flags modl anchored src))
               _ -> evaluateCpp flags
           | otherwise -> pure (Left (ParseError path (renderPsErrors st)))
   where
@@ -125,19 +132,20 @@ parseWith cppMode dflags path rawSrc = do
         Left err ->
           Left (ParseError path ("CPP preprocessing failed: " <> show err))
         Right src' -> case parseFile path flags src' of
-          POk _ modl -> Right (mkParsed flags modl [])
+          POk _ modl -> Right (mkParsed flags modl [] src')
           PFailed st' -> Left (ParseError path (renderPsErrors st'))
 
     -- Header pragmas are taken from the original source: the LANGUAGE
     -- pragmas must survive into the bundle even when the declarations come
     -- from preprocessed or directive-stripped text.
-    mkParsed flags modl directives =
+    mkParsed flags modl directives spanSrc =
       ParsedFile
         { pfPath = path,
           pfModule = modl,
           pfDynFlags = flags,
           pfPragmas = extractHeaderPragmas src,
-          pfDirectives = directives
+          pfDirectives = directives,
+          pfSource = spanSrc
         }
 
 -- | CRLF-tolerant reading: the bundle is always emitted with plain LF, and
@@ -190,11 +198,11 @@ stripDirectives src
 -- blanking such a line changes meaning (e.g. an @#ifdef DEBUG@ statement in
 -- a do-block would become unconditional), so the caller must evaluate the
 -- CPP instead of preserving it.
-anchorDirectives :: Located (HsModule GhcPs) -> [(Int, String)] -> Maybe [(Int, String)]
+anchorDirectives :: Located (HsModule GhcPs) -> [(Int, String)] -> Maybe [(Int, Int, String)]
 anchorDirectives modl directives
   | all betweenDecls directives =
       Just
-        [ (length (filter ((< line) . fst) declSpans), text)
+        [ (length (filter ((< line) . fst) declSpans), line, text)
         | (line, text) <- directives
         ]
   | otherwise = Nothing

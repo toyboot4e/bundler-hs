@@ -6,15 +6,22 @@ module Bundler.Rename.Apply
   ( ResolveEnv (..),
     mkResolveEnv,
     applyRenames,
+    applyRenamesPatched,
   )
 where
 
 import Bundler.Error
 import Bundler.Parse
+import Bundler.Render (renderSDoc)
 import Bundler.Rename.Plan
+import Bundler.SourcePatch (Patch)
 import Bundler.Symbols
+import Control.Monad (when)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.Writer.CPS (WriterT, censor, runWriterT, tell)
 import Data.Containers.ListUtils (nubOrd)
 import Data.Generics (Data, everywhereM, extM, gmapM, mkM)
+import Data.List (intercalate)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
@@ -28,9 +35,24 @@ import GHC.Types.Name.Occurrence
     occNameString,
   )
 import GHC.Types.Name.Reader (RdrName (..), mkRdrUnqual, rdrNameOcc)
-import GHC.Types.SrcLoc (GenLocated (..), unLoc)
+import GHC.Types.SrcLoc (GenLocated (..), SrcSpan (..), unLoc)
+import GHC.Utils.Outputable (ppr)
 
 type M = Either BundleError
+
+-- | The rename traversal's monad: alongside the rewritten AST it records
+-- span-anchored text patches, so a file can also be re-emitted as its
+-- original source text with just the renames spliced in (preserving
+-- comments and formatting - used for the user's own file).
+type RM = WriterT [Patch] M
+
+liftE :: M a -> RM a
+liftE = lift
+
+-- | Record a replacement for a real span.
+patchAt :: SrcSpan -> String -> RM ()
+patchAt (RealSrcSpan real _) new = tell [(real, new)]
+patchAt _ _ = pure ()
 
 -- | How names written in one particular file resolve to local modules.
 data ResolveEnv = ResolveEnv
@@ -161,25 +183,40 @@ mkResolveEnv plan symsOf self pf = do
 type Shadow = Set OccKey
 
 -- | Rewrite every 'RdrName' occurrence in the declarations according to the
--- plan, tracking local scope so shadowed names stay untouched.
---
--- The traversal is generic ('gmapM') with type-specific cases for every
--- construct that introduces binders. Binders scope over sibling subtrees
--- (e.g. pattern binders over the equation body), which is why this cannot
--- be a plain @everywhereM@.
+-- plan, discarding the collected patches.
 applyRenames ::
   RenamePlan ->
   Map ModuleName ModuleSymbols ->
   ResolveEnv ->
   [LHsDecl GhcPs] ->
   Either BundleError [LHsDecl GhcPs]
-applyRenames plan symsOf env decls = do
+applyRenames plan symsOf env decls =
+  fst <$> applyRenamesPatched plan symsOf env decls
+
+-- | Rewrite every 'RdrName' occurrence in the declarations according to the
+-- plan, tracking local scope so shadowed names stay untouched. Also
+-- returns one text patch per changed occurrence, anchored to the original
+-- source span, so the caller can alternatively re-emit the original text
+-- with just the renames spliced in.
+--
+-- The traversal is generic ('gmapM') with type-specific cases for every
+-- construct that introduces binders. Binders scope over sibling subtrees
+-- (e.g. pattern binders over the equation body), which is why this cannot
+-- be a plain @everywhereM@.
+applyRenamesPatched ::
+  RenamePlan ->
+  Map ModuleName ModuleSymbols ->
+  ResolveEnv ->
+  [LHsDecl GhcPs] ->
+  Either BundleError ([LHsDecl GhcPs], [Patch])
+applyRenamesPatched plan symsOf env decls = runWriterT $ do
   expanded <- traverse (expandWildcards plan symsOf env) decls
   traverse (go Set.empty) expanded
   where
-    go :: (Data a) => Shadow -> a -> M a
+    go :: (Data a) => Shadow -> a -> RM a
     go sc =
       gen
+        `extM` (locRdrCase sc)
         `extM` (rdrCase sc)
         `extM` (exprCase sc)
         `extM` (matchCase sc)
@@ -187,50 +224,66 @@ applyRenames plan symsOf env decls = do
         `extM` (bindCase sc)
         `extM` (instCase sc)
       where
-        gen :: (Data d) => d -> M d
+        gen :: (Data d) => d -> RM d
         gen = gmapM (go sc)
 
     binders :: (CollectFlag GhcPs -> a -> [IdP GhcPs]) -> a -> Shadow
     binders collect x =
       Set.fromList (map occKeyOf (collect CollNoDictBinders x))
 
+    -- Occurrences carry their span at the 'LocatedN' level: rewrite there
+    -- and record the patch when the name actually changed. The span
+    -- includes any adornment (backticks, parens), so the replacement must
+    -- carry it too.
+    locRdrCase :: Shadow -> LocatedN RdrName -> RM (LocatedN RdrName)
+    locRdrCase sc lrdr@(L l rdr) = do
+      rdr' <- rdrCase sc rdr
+      when (rdr' /= rdr) $
+        patchAt (getLocA lrdr) (adorn (renderSDoc (ppr rdr')))
+      pure (L l rdr')
+      where
+        adorn text = case anns l of
+          NameAnn {nann_adornment = NameParens {}} -> "(" <> text <> ")"
+          NameAnn {nann_adornment = NameParensHash {}} -> "(# " <> text <> " #)"
+          NameAnn {nann_adornment = NameBackquotes {}} -> "`" <> text <> "`"
+          NameAnn {nann_adornment = NameSquare {}} -> "[" <> text <> "]"
+          _ -> text
+
     -- Leaf rewrite. Qualified references cannot be shadowed; unqualified
     -- ones consult the shadow set first, then the module's own top level,
     -- then unqualified imports of local modules.
-    rdrCase :: Shadow -> RdrName -> M RdrName
+    rdrCase :: Shadow -> RdrName -> RM RdrName
     rdrCase sc rdr = case rdr of
       Unqual occ
-        | occKeyOf rdr `Set.member` sc -> Right rdr
+        | occKeyOf rdr `Set.member` sc -> pure rdr
         | Just self <- reSelf env,
           Just new <- lookupPlan self (occKeyOf rdr) ->
-            Right (unqual occ new)
+            pure (unqual occ new)
         | otherwise -> case Map.lookup (occKeyOf rdr) (reUnqualLocal env) of
             Nothing -> case Map.lookup (occKeyOf rdr) (reUnqualExt env) of
-              Just m -> Right (Qual (extAliasOf m) occ)
-              Nothing -> Right rdr
+              Just m -> pure (Qual (extAliasOf m) occ)
+              Nothing -> pure rdr
             -- One name may arrive via several imports (e.g. directly and
             -- through a re-export module); same origin means no ambiguity.
             Just entries -> case nubOrd entries of
-              [(_, new)] -> Right (unqual occ new)
+              [(_, new)] -> pure (unqual occ new)
               several ->
-                Left
-                  ( AmbiguousName
-                      (occNameString occ)
-                      (map (moduleNameString . fst) several)
-                  )
+                liftE . Left $
+                  AmbiguousName
+                    (occNameString occ)
+                    (map (moduleNameString . fst) several)
       Qual q occ
         | Just m <- Map.lookup q (reQualLocal env) ->
             case plannedFor m (occKeyOf (Unqual occ)) of
-              Just new -> Right (unqual occ new)
+              Just new -> pure (unqual occ new)
               Nothing ->
-                Left
-                  ( UnknownQualifiedName
-                      (moduleNameString q <> "." <> occNameString occ)
-                      (moduleNameString m)
-                  )
+                liftE . Left $
+                  UnknownQualifiedName
+                    (moduleNameString q <> "." <> occNameString occ)
+                    (moduleNameString m)
         | Just m <- Map.lookup q (reQualExt env) ->
-            Right (Qual (extAliasOf m) occ)
-      _ -> Right rdr
+            pure (Qual (extAliasOf m) occ)
+      _ -> pure rdr
 
     extAliasOf m = Map.findWithDefault m m (reExtAlias env)
 
@@ -244,12 +297,13 @@ applyRenames plan symsOf env decls = do
         syms <- Map.lookup m symsOf
         origin <- Map.lookup key (msReExported syms)
         lookupPlan origin key
+
     unqual occ new = mkRdrUnqual (mkOccName (occNameSpace occ) new)
 
     -- One equation/alternative: pattern binders scope over the patterns
     -- themselves (view patterns, and protecting the binder occurrences),
     -- the guards, the RHS, and the where block.
-    matchCase :: Shadow -> Match GhcPs (LHsExpr GhcPs) -> M (Match GhcPs (LHsExpr GhcPs))
+    matchCase :: Shadow -> Match GhcPs (LHsExpr GhcPs) -> RM (Match GhcPs (LHsExpr GhcPs))
     matchCase sc m@(Match {m_ctxt = ctxt, m_pats = pats, m_grhss = grhss}) = do
       let sc' = sc <> binders collectPatsBinders (unLoc pats)
           scAll = sc' <> binders collectLocalBinders (grhssLocalBinds grhss)
@@ -263,7 +317,7 @@ applyRenames plan symsOf env decls = do
 
     -- One guarded RHS: pattern guards bind left-to-right into later guards
     -- and the body.
-    grhsCase :: Shadow -> GRHS GhcPs (LHsExpr GhcPs) -> M (GRHS GhcPs (LHsExpr GhcPs))
+    grhsCase :: Shadow -> GRHS GhcPs (LHsExpr GhcPs) -> RM (GRHS GhcPs (LHsExpr GhcPs))
     grhsCase sc (GRHS x guards body) = do
       (sc', guards') <- threadStmts sc guards
       body' <- go sc' body
@@ -272,7 +326,7 @@ applyRenames plan symsOf env decls = do
     -- A pattern binding's where block scopes over guards and RHS. (The
     -- pattern's own binders belong to the enclosing scope and are handled
     -- by whoever collected them - top level or let/where.)
-    bindCase :: Shadow -> HsBind GhcPs -> M (HsBind GhcPs)
+    bindCase :: Shadow -> HsBind GhcPs -> RM (HsBind GhcPs)
     bindCase sc b = case b of
       PatBind {pat_lhs = lhs, pat_rhs = grhss} -> do
         let scAll = sc <> binders collectLocalBinders (grhssLocalBinds grhss)
@@ -281,7 +335,7 @@ applyRenames plan symsOf env decls = do
         pure b {pat_lhs = lhs', pat_rhs = grhss'}
       _ -> gmapM (go sc) b
 
-    exprCase :: Shadow -> HsExpr GhcPs -> M (HsExpr GhcPs)
+    exprCase :: Shadow -> HsExpr GhcPs -> RM (HsExpr GhcPs)
     exprCase sc e = case e of
       -- let/where bindings are recursive: binders scope over their own
       -- right-hand sides as well as the body.
@@ -302,10 +356,30 @@ applyRenames plan symsOf env decls = do
     -- with the class's own module plan; an external class's methods are
     -- left alone even when a same-named local export is in scope. The
     -- bodies still get the normal lexical treatment; only the binder
-    -- names are overridden afterwards.
-    instCase :: Shadow -> ClsInstDecl GhcPs -> M (ClsInstDecl GhcPs)
+    -- names are overridden afterwards - so the lexical pass's patches for
+    -- those spans are censored and re-recorded with the overridden names.
+    instCase :: Shadow -> ClsInstDecl GhcPs -> RM (ClsInstDecl GhcPs)
     instCase sc inst = do
-      inst' <- gmapM (go sc) inst
+      let binderOccs :: [(SrcSpan, String)]
+          binderOccs =
+            concat
+              [ (getLocA fid, nameOf (unLoc fid))
+                  : [ (getLocA f, nameOf (unLoc f))
+                    | L _ m <- unLoc (mg_alts mg),
+                      FunRhs {mc_fun = f} <- [m_ctxt m]
+                    ]
+              | L _ FunBind {fun_id = fid, fun_matches = mg} <- cid_binds inst
+              ]
+              <> [ (getLocA n, nameOf (unLoc n))
+                 | L _ (TypeSig _ ns _) <- cid_sigs inst,
+                   n <- ns
+                 ]
+          binderSpans =
+            Set.fromList [real | (RealSrcSpan real _, _) <- binderOccs]
+      inst' <-
+        censor
+          (filter (\(sp, _) -> sp `Set.notMember` binderSpans))
+          (gmapM (go sc) inst)
       let clsPlan = do
             cls <- headClassName (cid_poly_ty inst)
             m <- resolveToModule (unLoc cls)
@@ -314,6 +388,12 @@ applyRenames plan symsOf env decls = do
             Nothing -> old
             Just p -> fromMaybe old (Map.lookup ((NsValue, old)) p)
           fixOne orig (L l b) = L l (setMethodName (methodName orig) b)
+      sequence_
+        [ patchAt sp new
+        | (sp, old) <- binderOccs,
+          let new = methodName old,
+          new /= old
+        ]
       pure
         inst'
           { cid_binds =
@@ -328,8 +408,10 @@ applyRenames plan symsOf env decls = do
                 (cid_sigs inst')
           }
       where
+        nameOf = occNameString . rdrNameOcc
+
         bindName (L _ b) = case b of
-          FunBind {fun_id = fid} -> occNameString (rdrNameOcc (unLoc fid))
+          FunBind {fun_id = fid} -> nameOf (unLoc fid)
           _ -> ""
 
         -- InstanceSigs: the signature names are method references too.
@@ -338,7 +420,6 @@ applyRenames plan symsOf env decls = do
             L l (TypeSig x (map (fmap (renameTo . methodName . nameOf)) origNames) ty)
           _ -> L l new
           where
-            nameOf = occNameString . rdrNameOcc
             renameTo s = mkRdrUnqual (mkVarOcc s)
 
     -- Override the binder name of a method bind: fun_id and every
@@ -378,7 +459,7 @@ applyRenames plan symsOf env decls = do
 
     -- Sequential scoping through a statement list, returning the scope
     -- after the last statement.
-    threadStmts :: Shadow -> [ExprLStmt GhcPs] -> M (Shadow, [ExprLStmt GhcPs])
+    threadStmts :: Shadow -> [ExprLStmt GhcPs] -> RM (Shadow, [ExprLStmt GhcPs])
     threadStmts sc [] = pure (sc, [])
     threadStmts sc (L l stmt : rest) = do
       (sc', stmt') <- case stmt of
@@ -422,13 +503,14 @@ resolveRdrModule plan env rdr = case rdr of
 -- invisible to the parser and would defeat both shadow tracking and field
 -- renaming. The synthesized labels carry their final (renamed) names; the
 -- RHS variables keep the old field names, which is exactly what the
--- wildcard bound or referenced.
+-- wildcard bound or referenced. Every textual edit is also recorded as a
+-- patch (the @..@ span carries the synthesized fields).
 expandWildcards ::
   RenamePlan ->
   Map ModuleName ModuleSymbols ->
   ResolveEnv ->
   LHsDecl GhcPs ->
-  Either BundleError (LHsDecl GhcPs)
+  RM (LHsDecl GhcPs)
 expandWildcards plan symsOf env =
   everywhereM (mkM patCase `extM` exprCase `extM` punPatCase `extM` punExprCase)
   where
@@ -439,24 +521,26 @@ expandWildcards plan symsOf env =
     -- name; the RHS keeps the old one.
     punPatCase ::
       HsFieldBind (LFieldOcc GhcPs) (LPat GhcPs) ->
-      Either BundleError (HsFieldBind (LFieldOcc GhcPs) (LPat GhcPs))
+      RM (HsFieldBind (LFieldOcc GhcPs) (LPat GhcPs))
     punPatCase = punCase varPatRhs
 
     punExprCase ::
       HsFieldBind (LFieldOcc GhcPs) (LHsExpr GhcPs) ->
-      Either BundleError (HsFieldBind (LFieldOcc GhcPs) (LHsExpr GhcPs))
+      RM (HsFieldBind (LFieldOcc GhcPs) (LHsExpr GhcPs))
     punExprCase = punCase varExprRhs
 
     punCase ::
       (String -> arg) ->
       HsFieldBind (LFieldOcc GhcPs) arg ->
-      Either BundleError (HsFieldBind (LFieldOcc GhcPs) arg)
+      RM (HsFieldBind (LFieldOcc GhcPs) arg)
     punCase mkRhs fld
       | hfbPun fld,
-        let rdr = unLoc (foLabel (unLoc (hfbLHS fld))),
+        let lbl = foLabel (unLoc (hfbLHS fld)),
+        let rdr = unLoc lbl,
         let old = occNameString (rdrNameOcc rdr),
         Just m <- resolveRdrModule plan env rdr,
-        Just new <- Map.lookup m (rpByModule plan) >>= Map.lookup (NsValue, old) =
+        Just new <- Map.lookup m (rpByModule plan) >>= Map.lookup (NsValue, old) = do
+          patchAt (getLocA lbl) (new <> " = " <> old)
           pure
             fld
               { hfbLHS =
@@ -469,18 +553,20 @@ expandWildcards plan symsOf env =
                 hfbPun = False
               }
       | otherwise = pure fld
-    patCase :: Pat GhcPs -> Either BundleError (Pat GhcPs)
+    patCase :: Pat GhcPs -> RM (Pat GhcPs)
     patCase p = case p of
       ConPat {pat_con = con, pat_args = RecCon flds}
-        | Just (m, fields) <- localConFields (unLoc con) ->
-            pure p {pat_args = RecCon (expandFlds varPatRhs m fields flds)}
+        | Just (m, fields) <- localConFields (unLoc con) -> do
+            flds' <- expandFlds varPatRhs m fields flds
+            pure p {pat_args = RecCon flds'}
       _ -> pure p
 
-    exprCase :: HsExpr GhcPs -> Either BundleError (HsExpr GhcPs)
+    exprCase :: HsExpr GhcPs -> RM (HsExpr GhcPs)
     exprCase e = case e of
       RecordCon {rcon_con = con, rcon_flds = flds}
-        | Just (m, fields) <- localConFields (unLoc con) ->
-            pure e {rcon_flds = expandFlds varExprRhs m fields flds}
+        | Just (m, fields) <- localConFields (unLoc con) -> do
+            flds' <- expandFlds varExprRhs m fields flds
+            pure e {rcon_flds = flds'}
       _ -> pure e
 
     localConFields :: RdrName -> Maybe (ModuleName, [String])
@@ -495,12 +581,21 @@ expandWildcards plan symsOf env =
       ModuleName ->
       [String] ->
       HsRecFields GhcPs arg ->
-      HsRecFields GhcPs arg
-    expandFlds mkRhs m fields hrf =
-      hrf
-        { rec_flds = map fixExplicit (rec_flds hrf) <> map synth missing,
-          rec_dotdot = Nothing
-        }
+      RM (HsRecFields GhcPs arg)
+    expandFlds mkRhs m fields hrf = do
+      explicitFlds <- traverse fixExplicit (rec_flds hrf)
+      case rec_dotdot hrf of
+        Just ldd
+          | not (null missing) ->
+              patchAt
+                (getHasLoc ldd)
+                (intercalate ", " [newNameOf old <> " = " <> old | old <- missing])
+        _ -> pure ()
+      pure
+        hrf
+          { rec_flds = explicitFlds <> map synth missing,
+            rec_dotdot = Nothing
+          }
       where
         -- Explicit labels are resolved via the constructor, exactly like
         -- GHC does: with DisambiguateRecordFields an unqualified label is
@@ -512,15 +607,17 @@ expandWildcards plan symsOf env =
           case (unLoc (foLabel (unLoc (hfbLHS fld))), planned) of
             (Unqual occ, Just planOf)
               | let old = occNameString occ,
-                Just new <- Map.lookup (NsValue, old) planOf ->
-                  L
-                    l
+                Just new <- Map.lookup (NsValue, old) planOf -> do
+                  patchAt
+                    (getLocA (foLabel (unLoc (hfbLHS fld))))
+                    (if hfbPun fld then new <> " = " <> old else new)
+                  pure . L l $
                     fld
                       { hfbLHS = finalLabel (occNameSpace occ) new,
                         hfbRHS = if hfbPun fld then mkRhs old else hfbRHS fld,
                         hfbPun = False
                       }
-            _ -> lfld
+            _ -> pure lfld
         planned = Map.lookup m (rpByModule plan)
 
         explicit =

@@ -3,6 +3,8 @@ module Main
   ) where
 
 -- ### (user code)
+-- Every f below except the imported one is a local binder and must NOT be
+-- renamed; the g calls resolve to the import and MUST be.
 lam :: (Int -> Int) -> Int
 lam = \f -> f (gShadow 1)
 

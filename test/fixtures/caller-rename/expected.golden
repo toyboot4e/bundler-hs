@@ -5,6 +5,8 @@ module Main
   ) where
 
 -- ### (user code)
+-- Caller-side references in every position: direct call, backtick infix,
+-- partial application, type-level, pattern, guard, where, comprehension.
 direct :: Int
 direct = myFuncQ 21
 
@@ -23,6 +25,8 @@ typeLevel b = contentQ b
 inPattern :: BoxQ -> String
 inPattern MkBoxQ {labelQ = l} = l
 
+-- DisambiguateRecordFields: the constructor determines the record, so the
+-- field labels are legal unqualified even under a qualified-only import.
 disambiguated :: BoxQ
 disambiguated = MkBoxQ {contentQ = myFuncQ 5, labelQ = "x"}
 

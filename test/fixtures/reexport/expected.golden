@@ -6,8 +6,11 @@ module Main
 main :: IO ()
 main = do
   print (shrinkExtra 1)
+  -- reaches Main through Bulk -> Extra -> Core
   print (growCore 2)
+  -- in scope from both Core and Bulk: same origin, not ambiguous
   print (flattenCore 3)
+  -- qualified access through two levels of re-export
   print (growCore 4)
 
 -- ### Core

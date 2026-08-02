@@ -1,0 +1,17 @@
+module Main ( main ) where
+import Data.List ( sort )
+
+-- ### (user code)
+
+-- | Doc comment on the solver.
+solve :: [Int] -> Int
+solve xs = fAlpha (foldr pushAlpha emptyHeapAlpha (sort xs)) -- trailing comment
+
+{- a block comment
+   between declarations -}
+main :: IO ()
+main = print (solve [3, 1, 2])
+
+-- closing remark
+
+data HeapAlpha = HeapAlpha {itemsAlpha :: [Int], sizeAlpha :: Int} ; emptyHeapAlpha :: HeapAlpha ; emptyHeapAlpha = HeapAlpha {itemsAlpha = [], sizeAlpha = 0} ; pushAlpha :: Int -> HeapAlpha -> HeapAlpha ; pushAlpha x h = HeapAlpha {itemsAlpha = x : itemsAlpha h, sizeAlpha = sizeAlpha h + 1} ; fAlpha :: HeapAlpha -> Int ; fAlpha h = sum (itemsAlpha h) + sizeAlpha h

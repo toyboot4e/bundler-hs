@@ -167,28 +167,78 @@ minifyWith opts src
         piecesWithin (start, end) =
           [p | p@(pos, _, _, _) <- pieces, pos >= start, pos < end || pos == end]
 
+        lastImportEnd =
+          maximum (0 : [endLine | (_, (endLine, _), True) <- items])
+
+        -- Whether content on this line belongs to a minified region:
+        -- imports by position, everything else by banner section.
+        lineMinified n
+          | n <= lastImportEnd = moImports opts
+          | otherwise = case sectionAt n of
+              InUser -> moUser opts
+              InLib -> moLib opts
+
+        headerEndLine =
+          maximum
+            ( 0
+                : [ el
+                  | ((sl, _), prio, _, (el, _)) <- pieces,
+                    prio == prioToken,
+                    sl < firstContentLine
+                  ]
+            )
+
+        sliceLines a b = take (b - a + 1) (drop (a - 1) origLines)
+
+        -- Comment and blank lines between items survive in non-minified
+        -- regions; directive lines are their own stream entries.
+        gapOut prevEnd nextStart =
+          [ l
+          | (n, l) <- zip [prevEnd + 1 ..] (sliceLines (prevEnd + 1) (nextStart - 1)),
+            not (isDirectiveLine l),
+            not (lineMinified n)
+          ]
+
+        verbEnd (_, (endLine, endCol), _) =
+          if endCol == 1 then endLine - 1 else endLine
+
         -- Items and directives interleaved by line, every item starting
         -- at column 1 (a new item under the module body's implicit
         -- layout). Consecutive minified items of one kind (imports / user
         -- code / library code) merge into a single line; a CPP directive
         -- or a verbatim item breaks the run.
-        body = go (sortOn entryLine stream)
+        body = dropWhileEnd null (go headerEndLine (sortOn entryLine stream))
           where
             stream =
               [Left d | d <- directives]
                 <> [Right it | it <- items]
             entryLine (Left (n, _)) = n
             entryLine (Right ((n, _), _, _)) = n
-            go [] = []
-            go (Left (_, text) : rest) = text : go rest
-            go entries@(Right it@(start, _, isImport) : _)
+            go prevEnd [] = gapOut prevEnd (length origLines + 1)
+            go prevEnd (Left (n, text) : rest) =
+              gapOut prevEnd n <> (text : go (max prevEnd n) rest)
+            go prevEnd entries@(Right it@(start, _, isImport) : _)
               | minified start isImport =
                   let (run, rest) = spanRun (groupOf it) entries
-                   in intercalate
-                        " ; "
-                        [joinPieces (piecesWithin (s, e)) | (s, e, _) <- run]
-                        : go rest
-            go (Right it : rest) = verbatim it <> go rest
+                      endLn = maximum (map verbEnd run)
+                      line =
+                        intercalate
+                          " ; "
+                          [joinPieces (piecesWithin (s, e)) | (s, e, _) <- run]
+                   in gapOut prevEnd (fst start) <> (line : go (max prevEnd endLn) rest)
+            go prevEnd (Right it@(start, _, _) : rest) =
+              let (endLn, rest') = extendVerbatim (verbEnd it) rest
+               in gapOut prevEnd (fst start)
+                    <> sliceLines (fst start) endLn
+                    <> go (max prevEnd endLn) rest'
+
+            -- Two top-level items on one line (@a :: T ; a = e@) must be
+            -- sliced once, not once per item.
+            extendVerbatim curEnd (Right jt@(s, _, imp) : more)
+              | not (minified s imp),
+                fst s <= curEnd =
+                  extendVerbatim (max curEnd (verbEnd jt)) more
+            extendVerbatim curEnd more = (curEnd, more)
 
             spanRun g (Right jt@(s, _, imp) : rest)
               | minified s imp,
@@ -197,13 +247,6 @@ minifyWith opts src
             spanRun _ rest = ([], rest)
 
             groupOf ((line, _), _, isImport) = (isImport, sectionAt line)
-            verbatim ((startLine, _), (endLine, endCol), _) =
-              [ line
-              | line <-
-                  take (endLine' - startLine + 1) (drop (startLine - 1) origLines)
-              ]
-              where
-                endLine' = if endCol == 1 then endLine - 1 else endLine
 
     -- Single space between pieces, except between two tokens that were
     -- adjacent in the source.
