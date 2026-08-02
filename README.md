@@ -14,7 +14,7 @@ Or, clone the repository and run `cabal install`.
 
 ## Usage
 
-Pass your solution file and your library directory; the bundle is printed to stdout:
+Pass your solution file and your library directory. The bundle is printed to stdout:
 
 ```sh
 $ bundler-hs Main.hs --src path/to/your/library > submission.hs
@@ -35,19 +35,19 @@ import qualified SuffixArray as SA   -- SuffixArray.build  ->  buildSA
 import qualified Data.Deque          -- push  ->  pushDataDeque (no alias)
 ```
 
-The suffix can be customized with the `--rename-cmd` option.
+The renaming can be customized with the `--rename-cmd` option.
 
 In library modules, `import Prelude hiding (…)` lists are pruned if the conflicting items are renamed. Names hidden for other reasons stay hidden (with a warning).
 
 ### Language extension unification
 
-The bundle emits the union of the `LANGUAGE` pragmas in effect for every file — each file's own pragmas plus the `default-language` / `default-extensions` of its cabal project. Conflicting combinations can still fail to compile, which the bundler cannot prevent.
+The bundle emits the union of the `LANGUAGE` pragmas in effect for every file, that is, each file's own pragmas plus the `default-language` / `default-extensions` of its cabal project. Conflicting combinations can still fail to compile, which the bundler cannot prevent.
 
 CPP is handled separately: in library modules, `#` directives are **evaluated at bundle time**, while in the user's file, directives between top-level declarations are preserved.
 
 ### Formatting
 
-The output is formatted with [hindent](https://github.com/mihaimaruseac/hindent) by default; use the `--format-cmd` option to substitute another formatter.
+The output is formatted with [hindent](https://github.com/mihaimaruseac/hindent) by default. Use the `--format-cmd` option to substitute another formatter.
 
 > [ormolu](https://github.com/tweag/ormolu) does not work as expected. Because we parse the code and operate on the AST, the printed output has newlines in unusual places that ormolu does not handle well.
 
