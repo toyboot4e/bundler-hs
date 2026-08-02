@@ -27,12 +27,16 @@ newtype RenamePlan = RenamePlan
   deriving (Show)
 
 -- | The suffix appended to every name of a module: the @as@ alias from the
--- user's own import of it when present, otherwise the dot-stripped module
--- name.
+-- user's own import of it when present, otherwise the last component of
+-- the module name (@ToyLib.Parser@ -> @Parser@). Suffix collisions between
+-- modules only matter when two same-named definitions meet, and the plan
+-- validation catches that.
 planSuffixFor :: ParsedFile -> ModuleName -> String
 planSuffixFor userFile m =
-  maybe (filter (/= '.') (moduleNameString m)) moduleNameString userAlias
+  maybe lastComponent moduleNameString userAlias
   where
+    lastComponent =
+      reverse (takeWhile (/= '.') (reverse (moduleNameString m)))
     userAlias =
       listToMaybe . mapMaybe aliasOf . map unLoc . hsmodImports . unLoc $
         pfModule userFile
