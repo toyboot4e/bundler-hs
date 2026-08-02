@@ -12,8 +12,8 @@ where
 
 import Bundler.Error
 import Bundler.Parse
-import Bundler.Render (renderSDoc)
 import Bundler.Rename.Plan
+import Bundler.Render (renderSDoc)
 import Bundler.SourcePatch (Patch)
 import Bundler.Symbols
 import Control.Monad (when)
