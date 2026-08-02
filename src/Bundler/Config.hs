@@ -120,7 +120,7 @@ formatMode =
         ( long "format-cmd"
             <> metavar "CMD"
             <> help
-              "Format with a shell command (stdin to stdout) instead of the builtin hindent, e.g. 'ormolu --stdin-input-file Bundle.hs'"
+              "Format with a shell command (stdin to stdout)"
         )
   )
     <|> flag'
@@ -135,7 +135,7 @@ minifyOptions =
   combine
     <$> switch
       ( long "minify"
-          <> help "Minify everything except your own code: shorthand for --minify-lib --minify-import --minify-language-extensions"
+          <> help "Minify everything except your own code (shorthand)"
       )
     <*> switch
       ( long "minify-lib"
@@ -168,34 +168,19 @@ configParserInfo =
         <> footerDoc (Just footerNotes)
     )
 
--- | Minification notes and the --format-cmd / --rename-cmd protocols,
--- shown at the bottom of --help. Keep the rename part in sync with
--- 'Bundler.RenameCmd.RenameQuery'.
+-- | Minification notes and the --rename-cmd protocols, shown at the bottom of --help. Keep the
+-- rename part in sync with 'Bundler.RenameCmd.RenameQuery'.
 footerNotes :: Doc
 footerNotes =
   vsep
     ( map
         pretty
-        [ "Minification:",
-          "  The --minify-* flags are per-section and compose with formatting:",
-          "  minified sections become layout-free lines (comments dropped),",
-          "  everything else keeps its formatted layout. --minify is every",
-          "  section except your own code: it stays readable while the rest",
-          "  shrinks (add --minify-user-code to shrink it too).",
-          "",
-          "--format-cmd is a plain filter: bundle on stdin, formatted bundle on stdout.",
-          "",
-          "--rename-cmd is queried in lockstep via stdin/stdout, one line per name:",
+        [ "--rename-cmd is queried in lockstep via stdin/stdout, one line per name:",
           "",
           "    kind <TAB> module <TAB> default-suffix <TAB> name  ->  new-name",
           "",
-          "  kind is value, type, con, field, op, or extmod. All fields are",
-          "  non-empty; default-suffix is what the default rule would append, so",
+          "  kind is value, type, con, field, op, or extmod.",
           "  `echo \"$name$suffix\"` reproduces the default behavior.",
-          "",
-          "  op:     the name is an operator; the response must be symbolic too.",
-          "  extmod: module/name are an external module; the response is the",
-          "          qualifier to import it under in the bundle.",
           "",
           "  Example script:",
           "",
