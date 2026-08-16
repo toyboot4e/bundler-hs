@@ -6,6 +6,7 @@ module Bundler.Parse
     applyPragmaLines,
     nestingDelta,
     parseHaskellFile,
+    parseLibraryFile,
     parseUserFile,
   )
 where
@@ -65,8 +66,7 @@ data ParsedFile = ParsedFile
     -- @(declaration index, original line number, text)@: each directive is
     -- anchored to the index of the top-level declaration it precedes (an
     -- index equal to the number of declarations means \"after the last
-    -- one\"). Always empty for library files, whose directives are
-    -- evaluated instead.
+    -- one\"). Empty for any file whose directives were evaluated instead.
     pfDirectives :: [(Int, Int, String)],
     -- | The source text the declaration spans refer to: the original file,
     -- except when CPP was evaluated (then the preprocessed text). For the
@@ -77,13 +77,23 @@ data ParsedFile = ParsedFile
 
 -- | How to treat CPP @#@ directives when the raw parse fails.
 data CppHandling
-  = -- | Run cpphs and bundle the chosen branches (library modules; the
-    -- renamer needs one coherent set of top-level names).
+  = -- | Run cpphs and bundle the chosen branches, so the result carries one
+    -- coherent set of top-level names.
     CppEvaluate
   | -- | Keep directives that sit between top-level declarations, renaming
     -- all branches (user file). Falls back to 'CppEvaluate' when
     -- directives cut through the middle of a declaration.
     CppPreserve
+  | -- | Keep conditionals so the compiler that builds the bundle picks the
+    -- branch, but evaluate a module that defines macros (library modules).
+    --
+    -- A macro body is opaque text that the renamer cannot rewrite, so
+    -- preserving @#define INNER helper@ next to a @helper@ that was renamed
+    -- to @helperRen@ would leave the expansion dangling. Expanding first
+    -- and renaming the result is the only correct order, so any
+    -- @#define@\/@#undef@\/@#include@ in the module sends it down the
+    -- evaluate path whole.
+    CppPreserveConditionals
 
 -- | Flags before any per-project or per-file additions.
 baseDynFlags :: DynFlags
@@ -111,6 +121,12 @@ parseHaskellFile = parseWith CppEvaluate
 parseUserFile :: [(String, String)] -> DynFlags -> FilePath -> String -> IO (Either BundleError ParsedFile)
 parseUserFile = parseWith CppPreserve
 
+-- | Parse a local library module, preserving its directives like the user's
+-- own when they sit between top-level declarations, so the compiler that
+-- builds the bundle decides the branches. Falls back to evaluating them.
+parseLibraryFile :: [(String, String)] -> DynFlags -> FilePath -> String -> IO (Either BundleError ParsedFile)
+parseLibraryFile = parseWith CppPreserveConditionals
+
 parseWith :: CppHandling -> [(String, String)] -> DynFlags -> FilePath -> String -> IO (Either BundleError ParsedFile)
 parseWith cppMode userDefines dflags path rawSrc = do
   mflags <- parsePragmasIntoDynFlags dflags ([], []) path src
@@ -125,8 +141,9 @@ parseWith cppMode userDefines dflags path rawSrc = do
         -- raw parse fail and are handled per 'CppHandling'.
         PFailed st
           | xopt LangExt.Cpp flags -> case cppMode of
-              CppPreserve
-                | Just (stripped, directives) <- stripDirectives src,
+              _
+                | mayPreserve cppMode,
+                  Just (stripped, directives) <- stripDirectives src,
                   POk _ modl <- parseFile path flags stripped,
                   Just anchored <- anchorDirectives modl directives ->
                     pure (Right (mkParsed flags modl anchored src))
@@ -134,6 +151,10 @@ parseWith cppMode userDefines dflags path rawSrc = do
           | otherwise -> pure (Left (ParseError path (renderPsErrors st)))
   where
     src = normalizeNewlines rawSrc
+
+    mayPreserve CppEvaluate = False
+    mayPreserve CppPreserve = True
+    mayPreserve CppPreserveConditionals = not (definesMacros src)
 
     evaluateCpp flags = do
       preprocessed <- try @SomeException (runCpphs (cpphsOptions userDefines) path src)
@@ -165,6 +186,16 @@ normalizeNewlines :: String -> String
 normalizeNewlines ('\r' : '\n' : rest) = '\n' : normalizeNewlines rest
 normalizeNewlines (c : rest) = c : normalizeNewlines rest
 normalizeNewlines [] = []
+
+-- | Does the file define, undefine, or pull in macros? Such a module cannot
+-- have its directives preserved, because expansion has to happen before
+-- renaming.
+definesMacros :: String -> Bool
+definesMacros = any isMacroDirective . lines
+  where
+    isMacroDirective ('#' : rest) =
+      takeWhile isAlpha (dropWhile isSpace rest) `elem` ["define", "undef", "include"]
+    isMacroDirective _ = False
 
 -- | Replace CPP directive lines with blank ones (keeping line numbers
 -- intact) and return them tagged with their line number. 'Nothing' when the

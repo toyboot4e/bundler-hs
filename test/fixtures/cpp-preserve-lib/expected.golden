@@ -5,11 +5,12 @@ module Main
   ) where
 
 main :: IO ()
-main = print (debugMac, markerMac)
-
+main = print debugMac
 -- ### Mac
-markerMac :: Int
-markerMac = 7
-
+#ifdef DEBUG
 debugMac :: Bool
 debugMac = True
+#else
+debugMac :: Bool
+debugMac = False
+#endif

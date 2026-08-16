@@ -9,4 +9,8 @@ main = print specVer
 
 -- ### Ver
 specVer :: String
+#if __GLASGOW_HASKELL__ >= 900
 specVer = "modern"
+#else
+specVer = "ancient"
+#endif

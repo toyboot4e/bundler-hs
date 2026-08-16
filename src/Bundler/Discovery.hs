@@ -76,7 +76,16 @@ discoverLocalModules extraDefines srcDirs userFile = do
             Right Nothing -> go seen rest
             Right (Just (path, flags, defs)) -> do
               src <- readFile' path
-              parsed <- parseHaskellFile (extraDefines <> defs) flags path src
+              -- Macros only the library's own project supplies disappear
+              -- along with that package, so a module that could rely on them
+              -- has to be resolved now. Macros the bundle's own project also
+              -- defines survive, so those conditionals can be left for
+              -- whatever compiler builds the bundle.
+              let libOnly = [d | d@(k, _) <- defs, k `notElem` map fst extraDefines]
+                  parse
+                    | null libOnly = parseLibraryFile
+                    | otherwise = parseHaskellFile
+              parsed <- parse (extraDefines <> defs) flags path src
               case parsed of
                 Left err -> pure (Left err)
                 Right pf -> do

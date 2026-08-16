@@ -9,4 +9,8 @@ main = print valueFlagged
 
 -- ### Flagged
 valueFlagged :: Int
+#ifdef SPECIAL
+valueFlagged = 1
+#else
 valueFlagged = 2
+#endif

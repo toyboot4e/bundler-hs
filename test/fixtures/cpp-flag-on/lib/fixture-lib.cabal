@@ -1,0 +1,14 @@
+cabal-version: 3.0
+name: fixture-lib
+version: 0
+
+flag debug
+  description: On by default, so cabal would pass -DDEBUG.
+  default: True
+
+library
+  default-extensions: CPP
+  cpp-options: -DMARKER=7
+
+  if flag(debug)
+    cpp-options: -DDEBUG

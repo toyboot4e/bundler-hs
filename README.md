@@ -43,7 +43,13 @@ In library modules, `import Prelude hiding (…)` lists are pruned if the confli
 
 The bundle emits the union of the `LANGUAGE` pragmas in effect for every file, that is, each file's own pragmas plus the `default-language` / `default-extensions` of its cabal project. Conflicting combinations can still fail to compile, which the bundler cannot prevent.
 
-CPP is handled separately: in library modules, `#` directives are **evaluated at bundle time**, while in the user's file, directives between top-level declarations are preserved.
+CPP is handled separately. In the user's file, directives between top-level declarations are preserved. In library modules they are preserved too, with every branch renamed, so the compiler that builds the bundle picks the branch just as it would have before bundling. That means an `#ifdef DEBUG` in your library still responds to your project's `cpp-options`, and a judge compiling without them takes the other branch on its own.
+
+A library module is instead **evaluated at bundle time** when preserving it would be wrong or impossible:
+
+- It uses `#define`, `#undef`, or `#include`. A macro body is opaque text that the renamer cannot rewrite, so it has to be expanded before renaming.
+- Its own cabal project supplies macros through `cpp-options` that your project does not. Those disappear along with the package, so the branch has to be decided now.
+- A directive cuts through the middle of a declaration, where blanking it out would change the meaning.
 
 The macros used for that evaluation are the ones GHC will have when it compiles the bundle. Because the bundle is a single file built inside **your** project, they come from your project's `cpp-options`, not the library's. Conditionals are resolved the way a plain `cabal build` resolves them, so `if flag(debug)` follows the flag's declared `default`, and `os`, `arch`, and `impl(ghc)` are decided against the host. A library project's own `cpp-options` only fill in macros your project says nothing about.
 

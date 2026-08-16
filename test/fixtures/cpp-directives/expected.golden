@@ -9,4 +9,8 @@ main = print answerIffy
 
 -- ### Iffy
 answerIffy :: Int
+#ifdef WIN32
+answerIffy = 1
+#else
 answerIffy = 2
+#endif

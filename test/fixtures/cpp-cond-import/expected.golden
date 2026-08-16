@@ -1,0 +1,18 @@
+{-# LANGUAGE CPP #-}
+
+module Main
+  ( main
+  ) where
+
+import qualified Data.List
+
+main :: IO ()
+main = print vCondImp
+
+-- ### CondImp
+vCondImp :: [Int]
+#ifdef USE_SORT
+vCondImp = Data.List.sort [3, 1, 2]
+#else
+vCondImp = [3, 1, 2]
+#endif

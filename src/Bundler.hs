@@ -20,6 +20,7 @@ import Bundler.Symbols
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except (ExceptT (..), catchE, runExceptT, throwE)
 import Data.ByteString.Lazy.Char8 qualified as LBS8
+import Data.Char (isAlpha, isSpace)
 import Data.Containers.ListUtils (nubOrd)
 import Data.List (dropWhileEnd, intercalate, intersect, sortOn)
 import Data.Map.Strict qualified as Map
@@ -318,20 +319,7 @@ assemble embedPos userDefaults libDefaults userFile extImportLines userSlice use
     -- separate them.
     userPieces = case userSlice of
       Just text -> [text]
-      Nothing -> go (0 :: Int) userDecls
-      where
-        go i [] = dirPieces i
-        go i (d : ds) =
-          dirPieces i <> case ds of
-            d2 : rest
-              | signatureFor d d2,
-                null (directivesAt (i + 1)) ->
-                  (renderDecl d <> "\n" <> renderDecl d2) : go (i + 2) rest
-            _ -> renderDecl d : go (i + 1) ds
-        dirPieces i = case directivesAt i of
-          [] -> []
-          ts -> [intercalate "\n" ts]
-    directivesAt i = [text | (j, _, text) <- pfDirectives userFile, j == i]
+      Nothing -> declPieces (pfDirectives userFile) userDecls
 
     -- The user's header block comes first and verbatim, so its comments
     -- (and the order of its own pragmas) survive; the pragmas the bundle
@@ -359,16 +347,50 @@ assemble embedPos userDefaults libDefaults userFile extImportLines userSlice use
     localChunk (lm, decls) =
       intercalate "\n\n" $
         ("-- ### " <> moduleNameString (lmName lm))
-          : mergeSigs decls
+          : declPieces (pfDirectives (lmParsed lm)) decls
 
 -- | Render declarations, joining each type/pattern-synonym signature with
 -- the binding that follows it (GHC parses them as separate declarations,
--- but a blank line between @f :: ...@ and @f = ...@ reads as noise).
-mergeSigs :: [GHC.Hs.LHsDecl GHC.Hs.GhcPs] -> [String]
-mergeSigs (d : d2 : rest)
-  | signatureFor d d2 = (renderDecl d <> "\n" <> renderDecl d2) : mergeSigs rest
-mergeSigs (d : rest) = renderDecl d : mergeSigs rest
-mergeSigs [] = []
+-- but a blank line between @f :: ...@ and @f = ...@ reads as noise), and
+-- re-emitting any preserved CPP directive lines at the declaration
+-- boundaries they came from. A signature merges with its binding unless a
+-- directive separates them.
+declPieces :: [(Int, Int, String)] -> [GHC.Hs.LHsDecl GHC.Hs.GhcPs] -> [String]
+declPieces directives = go 0
+  where
+    go i [] = dirPieces i
+    go i (d : ds) =
+      dirPieces i <> case ds of
+        d2 : rest
+          | signatureFor d d2,
+            null (directivesAt (i + 1)) ->
+              (renderDecl d <> "\n" <> renderDecl d2) : go (i + 2) rest
+        _ -> renderDecl d : go (i + 1) ds
+    dirPieces i = case pruneEmptyConditionals (directivesAt i) of
+      [] -> []
+      ts -> [intercalate "\n" ts]
+    directivesAt i = [text | (j, _, text) <- directives, j == i]
+
+-- | Drop conditionals left enclosing nothing, which happens when everything
+-- between them was an import or a header pragma and got hoisted into the
+-- bundle's own import or pragma block. Only a matched group with nothing in
+-- between goes: an @#endif@ closing the conditional of an earlier
+-- declaration sits in the same group and must stay.
+pruneEmptyConditionals :: [String] -> [String]
+pruneEmptyConditionals = go
+  where
+    go ts = case break isOpener ts of
+      (before, opener : rest) ->
+        let (middles, tailer) = span isElseLike rest
+         in case tailer of
+              closer : after
+                | isEndif closer -> go (before <> after)
+              _ -> before <> (opener : middles <> tailer)
+      (before, []) -> before
+    keyword l = takeWhile isAlpha (dropWhile isSpace (drop 1 l))
+    isOpener l = keyword l `elem` ["if", "ifdef", "ifndef"]
+    isElseLike l = keyword l `elem` ["else", "elif"]
+    isEndif l = keyword l == "endif"
 
 -- | Does the first declaration declare a signature for something the second
 -- one binds?

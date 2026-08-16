@@ -1,8 +1,11 @@
 {-# LANGUAGE CPP #-}
 
--- The bundle is compiled inside the user's project, so this is resolved with
--- the macros that project's cpp-options put in force, not this library's.
-module Mac (debug) where
+-- This library project supplies MARKER, a macro that disappears with the
+-- package, so the module is resolved at bundle time rather than preserved.
+module Mac (debug, marker) where
+
+marker :: Int
+marker = MARKER
 
 #ifdef DEBUG
 debug :: Bool
