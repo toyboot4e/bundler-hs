@@ -48,9 +48,17 @@ bundle cfg = runExceptT $ do
   userDefaults <- ExceptT (findProjectDefaults (takeDirectory (cfgInput cfg)))
   userFlags <- ExceptT (applyPragmaLines baseDynFlags (pdPragmas userDefaults))
   src <- liftIO (readFile' (cfgInput cfg))
-  userFile <- ExceptT (parseUserFile userFlags (cfgInput cfg) src)
+  -- The bundle is one file compiled inside the user's project, so the macros
+  -- GHC will have there are the ones the library's own directives must be
+  -- evaluated under. A library project's cpp-options only fill in macros the
+  -- user's project says nothing about, and -D overrides both.
+  let cliDefines = cfgDefines cfg
+      compileDefines = cliDefines <> pdDefines userDefaults
+  userFile <- ExceptT (parseUserFile compileDefines userFlags (cfgInput cfg) src)
   srcDirs <- traverse dirDefaults (cfgSrcDirs cfg)
-  locals <- ExceptT (discoverLocalModules [(d, flags) | (d, flags, _) <- srcDirs] userFile)
+  locals <-
+    ExceptT
+      (discoverLocalModules compileDefines [(d, flags, pdDefines defs) | (d, flags, defs) <- srcDirs] userFile)
   let withSyms0 = [(lm, moduleSymbols (lmParsed lm)) | lm <- locals]
   withSyms <- ExceptT (pure (resolveReExports withSyms0))
   mrenamer <- liftIO (traverse startRenamer (cfgRenameCmd cfg))
@@ -123,7 +131,7 @@ bundle cfg = runExceptT $ do
         "note: kept library imports whose names cannot be attributed:\n"
           <> unlines (map ("  " <>) kept)
           <> "these may make names ambiguous in the bundle"
-  checked <- ExceptT (selfCheck out)
+  checked <- ExceptT (selfCheck cliDefines out)
   let mopts = cfgMinify cfg
       -- Pre-formatting only matters for sections that stay verbatim.
       allCodeMinified = moLib mopts && moUser mopts && moImports mopts
@@ -158,7 +166,7 @@ bundle cfg = runExceptT $ do
   where
     -- Formatters are arbitrary; make sure the result is still Haskell.
     reparseAs cmd formatted = do
-      reparsed <- liftIO (parseHaskellFile baseDynFlags "<formatted output>" formatted)
+      reparsed <- liftIO (parseHaskellFile (cfgDefines cfg) baseDynFlags "<formatted output>" formatted)
       case reparsed of
         Left err ->
           ExceptT . pure . Left $
@@ -288,7 +296,7 @@ assemble embedPos userDefaults libDefaults userFile extImportLines userSlice use
   intercalate "\n\n" (filter (not . null) chunks) <> "\n"
   where
     chunks =
-      [ intercalate "\n" pragmas,
+      [ intercalate "\n" header,
         fromMaybe "" (renderModuleHeader (pfModule userFile)),
         intercalate "\n" imports
       ]
@@ -325,7 +333,12 @@ assemble embedPos userDefaults libDefaults userFile extImportLines userSlice use
           ts -> [intercalate "\n" ts]
     directivesAt i = [text | (j, _, text) <- pfDirectives userFile, j == i]
 
-    pragmas =
+    -- The user's header block comes first and verbatim, so its comments
+    -- (and the order of its own pragmas) survive; the pragmas the bundle
+    -- picks up from elsewhere are appended, minus the ones already there.
+    header = userHeader <> filter (`notElem` userHeader) inheritedPragmas
+    userHeader = pfHeader userFile
+    inheritedPragmas =
       nubOrd . concat $
         [ pdPragmas userDefaults,
           pfPragmas userFile,
@@ -405,9 +418,9 @@ runFormatter cmd input = do
 -- | Re-parse our own output before emitting it: the pretty-printer is not
 -- guaranteed to produce re-parseable code in every corner case, and a bundle
 -- that does not even parse must never reach stdout silently.
-selfCheck :: String -> IO (Either BundleError String)
-selfCheck out = do
-  reparsed <- parseHaskellFile baseDynFlags "<bundled output>" out
+selfCheck :: [(String, String)] -> String -> IO (Either BundleError String)
+selfCheck defs out = do
+  reparsed <- parseHaskellFile defs baseDynFlags "<bundled output>" out
   pure $ case reparsed of
     Left err -> Left (SelfCheckError (renderBundleError err) out)
     Right _ -> Right out

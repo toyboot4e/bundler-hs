@@ -1,5 +1,6 @@
 module Bundler.Discovery
   ( LocalModule (..),
+    SrcDir,
     discoverLocalModules,
     importedModules,
   )
@@ -32,28 +33,35 @@ importedModules :: ParsedFile -> [ModuleName]
 importedModules pf =
   map (unLoc . ideclName . unLoc) (hsmodImports (unLoc (pfModule pf)))
 
+-- | A @--src@ dir together with what its cabal project implies for the
+-- modules found under it: language flags and CPP macro definitions.
+type SrcDir = (FilePath, DynFlags, [(String, String)])
+
 -- | An import is local iff its source file exists under exactly one
 -- @--src@ dir; under several it is ambiguous (error), under none it is
 -- external and stays an import.
-lookupLocal :: [(FilePath, DynFlags)] -> ModuleName -> IO (Either BundleError (Maybe (FilePath, DynFlags)))
+lookupLocal :: [SrcDir] -> ModuleName -> IO (Either BundleError (Maybe SrcDir))
 lookupLocal srcDirs m = do
-  hits <- filterM (doesFileExist . fst) [(pathIn d, flags) | (d, flags) <- srcDirs]
+  hits <- filterM (doesFileExist . fst3) [(pathIn d, flags, defs) | (d, flags, defs) <- srcDirs]
   pure $ case hits of
     [] -> Right Nothing
     [hit] -> Right (Just hit)
-    several -> Left (DuplicateModule (moduleNameString m) (map fst several))
+    several -> Left (DuplicateModule (moduleNameString m) (map fst3 several))
   where
     pathIn d = d </> moduleNameSlashes m <.> "hs"
+    fst3 (a, _, _) = a
 
 -- | Breadth-first expansion of local imports starting from the user's file,
 -- returning modules in dependency order (dependencies before dependents).
--- Each local file is parsed with the 'DynFlags' of the @--src@ dir it was
--- found under (carrying that project's cabal defaults).
+-- Each local file is parsed with the 'DynFlags' and CPP defines of the
+-- @--src@ dir it was found under (carrying that project's cabal defaults),
+-- with @extraDefines@ (the command line's @-D@) taking precedence.
 discoverLocalModules ::
-  [(FilePath, DynFlags)] ->
+  [(String, String)] ->
+  [SrcDir] ->
   ParsedFile ->
   IO (Either BundleError [LocalModule])
-discoverLocalModules srcDirs userFile = do
+discoverLocalModules extraDefines srcDirs userFile = do
   result <- go Map.empty (importedModules userFile)
   pure (result >>= topoSort)
   where
@@ -66,9 +74,9 @@ discoverLocalModules srcDirs userFile = do
           case hit of
             Left err -> pure (Left err)
             Right Nothing -> go seen rest
-            Right (Just (path, flags)) -> do
+            Right (Just (path, flags, defs)) -> do
               src <- readFile' path
-              parsed <- parseHaskellFile flags path src
+              parsed <- parseHaskellFile (extraDefines <> defs) flags path src
               case parsed of
                 Left err -> pure (Left err)
                 Right pf -> do

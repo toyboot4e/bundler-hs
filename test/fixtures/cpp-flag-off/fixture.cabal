@@ -1,0 +1,11 @@
+cabal-version: 3.0
+name: fixture
+version: 0
+
+flag debug
+  description: Off by default, as a submission build would have it.
+  default: False
+
+library
+  if flag(debug)
+    cpp-options: -DDEBUG

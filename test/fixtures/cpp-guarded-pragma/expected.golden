@@ -1,0 +1,13 @@
+{-# LANGUAGE CPP #-}
+{-# LANGUAGE TupleSections #-}
+
+module Main
+  ( main
+  ) where
+
+main :: IO ()
+main = print (pairUpGuarded 0)
+
+-- ### Guarded
+pairUpGuarded :: Int -> (Int, Int)
+pairUpGuarded = (, 1)

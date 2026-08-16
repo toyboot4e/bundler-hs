@@ -5,7 +5,7 @@ where
 
 import Bundler.Config (MinifyOptions (..))
 import Bundler.Error
-import Bundler.Parse (baseDynFlags)
+import Bundler.Parse (baseDynFlags, nestingDelta)
 import Data.Char (isSpace)
 import Data.Foldable (toList)
 import Data.Generics.Uniplate.DataOnly (universeBi)
@@ -86,8 +86,25 @@ minifyWith opts src
       unlines [if isDirectiveLine l then "" else l | (_, l) <- numberedLines]
     isDirectiveLine l = take 1 l == "#"
 
-    (pragmaBlock, afterPragmas) = span isHeaderLine origLines
-    isHeaderLine l = null l || "{-#" `isPrefixOf` l
+    -- The bundle's header block: the pragma union plus whatever comments
+    -- the user's file had above it. It ends at the first line of real
+    -- code, or at the assembler's first section banner. Block comments and
+    -- pragmas may span lines, so nesting is tracked rather than each line
+    -- judged on its own.
+    (pragmaBlock, afterPragmas) = spanHeader 0 origLines
+    spanHeader _ [] = ([], [])
+    spanHeader depth (l : ls)
+      | depth > 0 || isHeaderLine l =
+          -- At depth 0 a line comment's text is not code, so brackets in
+          -- it do not open a block.
+          let delta = if depth == 0 && "--" `isPrefixOf` l then 0 else nestingDelta l
+              (block, rest) = spanHeader (max 0 (depth + delta)) ls
+           in (l : block, rest)
+      | otherwise = ([], l : ls)
+    isHeaderLine l =
+      null l
+        || "{-#" `isPrefixOf` l
+        || (("{-" `isPrefixOf` l || "--" `isPrefixOf` l) && not ("-- ###" `isPrefixOf` l))
 
     combineLangPragmas ls
       | not (moPragmas opts) = filter (not . null) ls

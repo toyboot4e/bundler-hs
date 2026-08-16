@@ -45,6 +45,29 @@ The bundle emits the union of the `LANGUAGE` pragmas in effect for every file, t
 
 CPP is handled separately: in library modules, `#` directives are **evaluated at bundle time**, while in the user's file, directives between top-level declarations are preserved.
 
+The macros used for that evaluation are the ones GHC will have when it compiles the bundle. Because the bundle is a single file built inside **your** project, they come from your project's `cpp-options`, not the library's. Conditionals are resolved the way a plain `cabal build` resolves them, so `if flag(debug)` follows the flag's declared `default`, and `os`, `arch`, and `impl(ghc)` are decided against the host. A library project's own `cpp-options` only fill in macros your project says nothing about.
+
+So a project like this needs no extra arguments, and the expanded library code sees `DEBUG`:
+
+```cabal
+flag debug
+  default: True
+
+executable my-solution
+  if flag(debug)
+    cpp-options: -DDEBUG
+```
+
+Use `-D NAME[=VALUE]` (repeatable) to define a macro yourself. It overrides both projects, which is the way to bundle a debug-enabled project for submission without the debug branches:
+
+```sh
+$ bundler-hs Main.hs --src path/to/your/library -D DEBUG
+```
+
+### Header preservation
+
+The comments and pragmas above your module header are copied into the bundle verbatim, so a banner comment or an `{- ORMOLU_DISABLE -}` marker survives. Pragmas picked up from the cabal defaults and the library modules are appended below them.
+
 ### Formatting
 
 The output is formatted with [hindent](https://github.com/mihaimaruseac/hindent) by default. Use the `--format-cmd` option to substitute another formatter.

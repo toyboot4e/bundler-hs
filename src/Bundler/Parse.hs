@@ -4,6 +4,7 @@ module Bundler.Parse
   ( ParsedFile (..),
     baseDynFlags,
     applyPragmaLines,
+    nestingDelta,
     parseHaskellFile,
     parseUserFile,
   )
@@ -11,7 +12,8 @@ where
 
 import Bundler.Error
 import Control.Exception (SomeException, try)
-import Data.Char (isAlpha, isSpace)
+import Data.Char (isAlpha, isAlphaNum, isSpace, toUpper)
+import Data.List (dropWhileEnd, intercalate, isPrefixOf)
 import GHC.Data.Bag (bagToList)
 import GHC.Driver.Session (DynFlags, defaultDynFlags, xopt)
 import GHC.Hs (GhcPs, HsModule, getLocA, hsmodDecls)
@@ -52,7 +54,13 @@ data ParsedFile = ParsedFile
   { pfPath :: FilePath,
     pfModule :: Located (HsModule GhcPs),
     pfDynFlags :: DynFlags,
+    -- | The file's header pragma lines (@LANGUAGE@, @OPTIONS_GHC@, ...),
+    -- unioned into the bundle's pragma block.
     pfPragmas :: [String],
+    -- | The whole header block above the module header - comments, blank
+    -- lines, and pragmas in source order. Only the user file's is emitted
+    -- (library headers are dropped, like the rest of their comments).
+    pfHeader :: [String],
     -- | Preserved CPP directive lines of the user's file, as
     -- @(declaration index, original line number, text)@: each directive is
     -- anchored to the index of the top-level declaration it precedes (an
@@ -93,17 +101,18 @@ applyPragmaLines dflags pragmaLines = do
     Left err -> Left (CabalError "<cabal defaults>" err)
     Right flags -> Right flags
 
--- | Parse a library file: CPP directives, if any, are evaluated by cpphs.
-parseHaskellFile :: DynFlags -> FilePath -> String -> IO (Either BundleError ParsedFile)
+-- | Parse a library file: CPP directives, if any, are evaluated by cpphs
+-- under the given macro definitions.
+parseHaskellFile :: [(String, String)] -> DynFlags -> FilePath -> String -> IO (Either BundleError ParsedFile)
 parseHaskellFile = parseWith CppEvaluate
 
 -- | Parse the user's file: CPP directives between top-level declarations
 -- are preserved into the bundle.
-parseUserFile :: DynFlags -> FilePath -> String -> IO (Either BundleError ParsedFile)
+parseUserFile :: [(String, String)] -> DynFlags -> FilePath -> String -> IO (Either BundleError ParsedFile)
 parseUserFile = parseWith CppPreserve
 
-parseWith :: CppHandling -> DynFlags -> FilePath -> String -> IO (Either BundleError ParsedFile)
-parseWith cppMode dflags path rawSrc = do
+parseWith :: CppHandling -> [(String, String)] -> DynFlags -> FilePath -> String -> IO (Either BundleError ParsedFile)
+parseWith cppMode userDefines dflags path rawSrc = do
   mflags <- parsePragmasIntoDynFlags dflags ([], []) path src
   case mflags of
     Left err ->
@@ -127,7 +136,7 @@ parseWith cppMode dflags path rawSrc = do
     src = normalizeNewlines rawSrc
 
     evaluateCpp flags = do
-      preprocessed <- try @SomeException (runCpphs cpphsOptions path src)
+      preprocessed <- try @SomeException (runCpphs (cpphsOptions userDefines) path src)
       pure $ case preprocessed of
         Left err ->
           Left (ParseError path ("CPP preprocessing failed: " <> show err))
@@ -144,6 +153,7 @@ parseWith cppMode dflags path rawSrc = do
           pfModule = modl,
           pfDynFlags = flags,
           pfPragmas = extractHeaderPragmas src,
+          pfHeader = extractHeader src,
           pfDirectives = directives,
           pfSource = spanSrc
         }
@@ -216,14 +226,23 @@ anchorDirectives modl directives
       ]
 
 -- | cpphs setup for library code: no #line markers in the output (they
--- would confuse the renamed bundle), and a __GLASGOW_HASKELL__ matching the
--- grammar ghc-lib-parser implements.
-cpphsOptions :: CpphsOptions
-cpphsOptions =
+-- would confuse the renamed bundle), the caller's macro definitions (from
+-- @-D@ and from cabal @cpp-options@), and a __GLASGOW_HASKELL__ matching
+-- the grammar ghc-lib-parser implements. Earlier definitions win, so the
+-- caller can override the compiler version too.
+cpphsOptions :: [(String, String)] -> CpphsOptions
+cpphsOptions userDefines =
   defaultCpphsOptions
-    { defines = [("__GLASGOW_HASKELL__", "912")],
+    { defines = dedupeOnKey (userDefines <> [("__GLASGOW_HASKELL__", "912")]),
       boolopts = defaultBoolOptions {locations = False}
     }
+  where
+    dedupeOnKey = go []
+      where
+        go _ [] = []
+        go seen ((k, v) : rest)
+          | k `elem` seen = go seen rest
+          | otherwise = (k, v) : go (k : seen) rest
 
 renderPsErrors :: PState -> String
 renderPsErrors st =
@@ -235,12 +254,67 @@ renderPsErrors st =
     opts = defaultDiagnosticOpts @PsMessage
     render = O.renderWithContext O.defaultSDocContext
 
--- | Header pragma lines (@{-\# LANGUAGE ... \#-}@ etc.) before the module
--- header, re-emitted verbatim. Single-line pragmas only; multi-line header
--- pragmas are out of scope for now.
+-- | The file's header block for verbatim re-emission: one entry per logical
+-- item - comment lines, block comments, blank lines, and header pragmas - in
+-- source order. A multi-line block comment or pragma is one entry.
+extractHeader :: String -> [String]
+extractHeader = dropWhileEnd null . scanHeader False
+
+-- | The header pragma lines only. CPP directives are stepped over here, so a
+-- @{-\# LANGUAGE ... \#-}@ guarded by @#if@ still reaches the bundle's
+-- pragma union (the branch is not evaluated: pragmas are additive anyway).
 extractHeaderPragmas :: String -> [String]
-extractHeaderPragmas =
-  filter isPragma . takeWhile (not . isModuleStart) . lines
+extractHeaderPragmas = filter isPragmaItem . scanHeader True
+
+-- | Walk the leading header, stopping at the first line that starts real
+-- code. A declaration pragma such as @{-\# INLINE f \#-}@ counts as real
+-- code: in a file without a module header those sit at column 1 too, and
+-- lifting them into the bundle's header would detach them from what they
+-- annotate.
+--
+-- @skipDirectives@ steps over CPP @#@ lines instead of stopping there; they
+-- are never returned as items either way.
+scanHeader :: Bool -> String -> [String]
+scanHeader skipDirectives = go . lines
   where
-    isPragma l = take 3 (dropWhile (== ' ') l) == "{-#"
-    isModuleStart l = take 7 l == "module "
+    go [] = []
+    go ls@(l : rest)
+      | null trimmed = "" : go rest
+      | "--" `isPrefixOf` trimmed = l : go rest
+      | "{-#" `isPrefixOf` trimmed = if isHeaderPragma trimmed then block ls else []
+      | "{-" `isPrefixOf` trimmed = block ls
+      | skipDirectives, "#" `isPrefixOf` l = go rest
+      | otherwise = []
+      where
+        trimmed = dropWhile (== ' ') l
+
+    -- One comment or pragma, which may span lines; nesting is tracked so a
+    -- multi-line {- ... -} does not swallow the rest of the file.
+    block ls = intercalate "\n" (reverse taken) : go leftover
+      where
+        (taken, leftover) = spanNested 0 [] ls
+        spanNested _ acc [] = (acc, [])
+        spanNested depth acc (x : xs)
+          | depth' <= 0 = (x : acc, xs)
+          | otherwise = spanNested depth' (x : acc) xs
+          where
+            depth' = depth + nestingDelta x
+
+    -- Only these belong above the module header; anything else in {-# #-}
+    -- annotates a declaration.
+    isHeaderPragma t =
+      map toUpper (takeWhile (\c -> isAlphaNum c || c == '_') (dropWhile isSpace (drop 3 t)))
+        `elem` ["LANGUAGE", "OPTIONS", "OPTIONS_GHC", "OPTIONS_HADDOCK", "INCLUDE"]
+
+isPragmaItem :: String -> Bool
+isPragmaItem l = "{-#" `isPrefixOf` dropWhile (== ' ') l
+
+-- | Open minus close comment brackets on one line. @{-\#@ and @\#-}@ are
+-- ordinary brackets as far as nesting goes, so pragmas balance out.
+nestingDelta :: String -> Int
+nestingDelta = go 0
+  where
+    go n ('{' : '-' : r) = go (n + 1) r
+    go n ('-' : '}' : r) = go (n - 1) r
+    go n (_ : r) = go n r
+    go n [] = n

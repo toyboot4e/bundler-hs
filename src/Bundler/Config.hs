@@ -21,6 +21,10 @@ data Config = Config
     -- (@--src DIR@, repeatable). An import @A.B.C@ is expanded iff
     -- @DIR/A/B/C.hs@ exists under one of these.
     cfgSrcDirs :: [FilePath],
+    -- | CPP macros defined while evaluating the @#@ directives of local
+    -- library modules (@-D NAME[=VALUE]@, repeatable). These take
+    -- precedence over a project's @cpp-options@.
+    cfgDefines :: [(String, String)],
     -- | Optional external command implementing the rename protocol
     -- (@--rename-cmd CMD@).
     cfgRenameCmd :: Maybe String,
@@ -91,6 +95,15 @@ configParser =
               <> help "Source directory of local library modules (repeatable)"
           )
       )
+    <*> many
+      ( option
+          readDefine
+          ( short 'D'
+              <> long "define"
+              <> metavar "NAME[=VALUE]"
+              <> help "Define a CPP macro for the library modules' # directives (repeatable)"
+          )
+      )
     <*> optional
       ( strOption
           ( long "rename-cmd"
@@ -107,6 +120,13 @@ configParser =
           <> value EmbedAfter
           <> help "Where expanded library code goes relative to your own (default: after)"
       )
+
+-- | @NAME@ (defined as @1@, like the C preprocessor) or @NAME=VALUE@.
+readDefine :: ReadM (String, String)
+readDefine = eitherReader $ \s -> case break (== '=') s of
+  ([], _) -> Left ("expected NAME or NAME=VALUE, got " <> show s)
+  (name, '=' : v) -> Right (name, v)
+  (name, _) -> Right (name, "1")
 
 readEmbedPosition :: ReadM EmbedPosition
 readEmbedPosition = eitherReader $ \s -> case s of

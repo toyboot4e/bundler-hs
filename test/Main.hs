@@ -60,6 +60,7 @@ formatFailureSalvage = testCase "format failure saves the unformatted bundle" $ 
         Config
           { cfgInput = fixture </> "Main.hs",
             cfgSrcDirs = [],
+            cfgDefines = [],
             cfgRenameCmd = Nothing,
             cfgFormat = format,
             cfgMinify = noMinify,

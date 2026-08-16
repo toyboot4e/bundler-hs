@@ -1,4 +1,4 @@
--- top-of-file comment (above the header: not part of the user region)
+-- top-of-file comment (part of the header block, kept above the pragmas)
 module Main (main) where
 
 import Alpha (emptyHeap, f, push)

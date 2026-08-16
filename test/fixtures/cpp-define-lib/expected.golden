@@ -1,0 +1,27 @@
+{-# LANGUAGE CPP #-}
+
+module Main
+  ( main
+  ) where
+
+main :: IO ()
+main = print (limitMacro, twiceMacro 4, totalMacro, flaggedMacro, stateMacro, labelMacro)
+
+-- ### Macro
+limitMacro :: Int
+limitMacro = 1000000007
+
+twiceMacro :: Int -> Int
+twiceMacro n = ((n) + (n))
+
+totalMacro :: Int
+totalMacro = ((1) + (2) + (3))
+
+flaggedMacro :: Bool
+flaggedMacro = True
+
+stateMacro :: Int
+stateMacro = 0
+
+labelMacro :: (String, Char)
+labelMacro = ("LIMIT stays", 'X')

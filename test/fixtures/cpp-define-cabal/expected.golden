@@ -1,0 +1,12 @@
+{-# LANGUAGE CPP #-}
+
+module Main
+  ( main
+  ) where
+
+main :: IO ()
+main = print valueFlagged
+
+-- ### Flagged
+valueFlagged :: Int
+valueFlagged = 2

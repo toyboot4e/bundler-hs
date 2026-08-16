@@ -1,0 +1,14 @@
+cabal-version: 3.0
+name: fixture-lib
+version: 0
+
+flag debug
+  default: False
+
+library
+  default-extensions: CPP
+  cpp-options: -DVERBOSE -DLEVEL=2
+
+  if flag(debug)
+    -- Depends on a build flag: not defined at bundle time.
+    cpp-options: -DDEBUG
