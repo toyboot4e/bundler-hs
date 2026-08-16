@@ -72,7 +72,18 @@ Some modules cannot be preserved. A library module is run through the preprocess
 - Its own cabal project supplies macros through `cpp-options` that your project does not. Those disappear along with the package, so the branch has to be decided while they are still known.
 - A directive cuts through the middle of a declaration, where blanking it out would change the meaning.
 
-The macros used for that evaluation are the ones GHC will have when it compiles the bundle. Because the bundle is a single file built inside **your** project, they come from your project's `cpp-options`, not the library's. Conditionals in the cabal file are resolved the way a plain `cabal build` resolves them, so `if flag(debug)` follows the flag's declared `default`, and `os`, `arch`, and `impl(ghc)` are decided against the host. A library project's own `cpp-options` only fill in macros your project says nothing about.
+The macros used for that evaluation are the ones GHC will have when it compiles the bundle. Because the bundle is a single file built inside **your** project, they come from your project's `cpp-options`, not the library's. A library project's own `cpp-options` only fill in macros your project says nothing about.
+
+Conditionals in the cabal file are resolved the way a plain `cabal build` resolves them. `os`, `arch`, and `impl(ghc)` are decided against the host, and `if flag(debug)` follows the flag's value in the build plan: the flag's declared `default`, overridden by any assignment in `cabal.project`, then `cabal.project.freeze`, then `cabal.project.local`, later files winning. Both `constraints:` entries and `package NAME` / `flags:` stanzas are read, so all of these turn the flag on:
+
+```
+constraints: my-lib +debug
+
+package my-lib
+  flags: +debug
+```
+
+Environment variables play no part, because they play no part for cabal either. `DEBUG=1 cabal build` does not define `DEBUG`. Only the flag does.
 
 Use `-D NAME[=VALUE]` (repeatable) to supply a macro yourself. It takes precedence over both projects:
 
@@ -101,6 +112,7 @@ Other known limitations:
 - **Formatting is not preserved.**
 - **Library comments are not preserved.** Their CPP directives are, but their comments are not.
 - A library module that uses `#define`, `#undef`, or `#include` has all of its conditionals resolved at bundle time, not just the ones that need it. There is no `-U` to undefine a macro for that pass.
+- A `cabal.project` is only looked for from your source file up to the directory holding its `.cabal`. One sitting further up, as in some multi-package repositories, is not found.
 - Not supported (hard error): [`.hs-boot`](https://downloads.haskell.org/ghc/latest/docs/users_guide/separate_compilation.html#mutually-recursive-modules-and-hs-boot-files) files, the [`{-# SOURCE #-}`](https://downloads.haskell.org/ghc/latest/docs/users_guide/exts/pragmas.html#source-pragma) pragma, and Template Haskell splices in library modules.
 
 ## Development

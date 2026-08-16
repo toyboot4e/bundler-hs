@@ -1,0 +1,16 @@
+{-# LANGUAGE CPP #-}
+
+module Main
+  ( main
+  ) where
+
+main :: IO ()
+main = print debugMac
+-- ### Mac
+#ifdef DEBUG
+debugMac :: Bool
+debugMac = True
+#else
+debugMac :: Bool
+debugMac = False
+#endif

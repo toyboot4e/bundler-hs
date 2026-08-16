@@ -46,7 +46,11 @@ import System.Process.Typed (byteStringInput, readProcess, setStdin, shell)
 -- everything else is deduplicated verbatim.
 bundle :: Config -> IO (Either BundleError String)
 bundle cfg = runExceptT $ do
-  userDefaults <- ExceptT (findProjectDefaults (takeDirectory (cfgInput cfg)))
+  -- Flag assignments from the build plan (cabal.project and the freeze and
+  -- local files layered on it) govern every package, the user's and the
+  -- libraries' alike, so they are read once from the input's project.
+  projFlags <- liftIO (findProjectFlags (takeDirectory (cfgInput cfg)))
+  userDefaults <- ExceptT (findProjectDefaults projFlags (takeDirectory (cfgInput cfg)))
   userFlags <- ExceptT (applyPragmaLines baseDynFlags (pdPragmas userDefaults))
   src <- liftIO (readFile' (cfgInput cfg))
   -- The bundle is one file compiled inside the user's project, so the macros
@@ -56,7 +60,7 @@ bundle cfg = runExceptT $ do
   let cliDefines = cfgDefines cfg
       compileDefines = cliDefines <> pdDefines userDefaults
   userFile <- ExceptT (parseUserFile compileDefines userFlags (cfgInput cfg) src)
-  libDirs <- traverse dirDefaults (cfgLibDirs cfg)
+  libDirs <- traverse (dirDefaults projFlags) (cfgLibDirs cfg)
   locals <-
     ExceptT
       (discoverLocalModules compileDefines [(d, flags, pdDefines defs) | (d, flags, defs) <- libDirs] userFile)
@@ -175,9 +179,9 @@ bundle cfg = runExceptT $ do
             FormatCmdError cmd ("output no longer parses:\n" <> renderBundleError err)
         Right _ -> pure formatted
 
-    dirDefaults :: FilePath -> ExceptT BundleError IO (FilePath, DynFlags, ProjectDefaults)
-    dirDefaults dir = do
-      defs <- ExceptT (findProjectDefaults dir)
+    dirDefaults :: ProjectFlags -> FilePath -> ExceptT BundleError IO (FilePath, DynFlags, ProjectDefaults)
+    dirDefaults projFlags dir = do
+      defs <- ExceptT (findProjectDefaults projFlags dir)
       flags <- ExceptT (applyPragmaLines baseDynFlags (pdPragmas defs))
       pure (dir, flags, defs)
 

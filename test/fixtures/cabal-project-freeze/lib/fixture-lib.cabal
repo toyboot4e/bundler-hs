@@ -1,0 +1,13 @@
+cabal-version: 3.0
+name: fixture-lib
+version: 0
+
+flag debug
+  description: Off here; cabal.project turns it on and the freeze file turns it back off.
+  default: False
+
+library
+  default-extensions: CPP
+
+  if flag(debug)
+    cpp-options: -DDEBUG

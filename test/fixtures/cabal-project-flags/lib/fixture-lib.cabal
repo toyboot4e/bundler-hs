@@ -1,0 +1,13 @@
+cabal-version: 3.0
+name: fixture-lib
+version: 0
+
+flag debug
+  description: Off here, but the project file turns it on.
+  default: False
+
+library
+  default-extensions: CPP
+
+  if flag(debug)
+    cpp-options: -DDEBUG

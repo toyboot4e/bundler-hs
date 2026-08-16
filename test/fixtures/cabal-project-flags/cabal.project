@@ -1,0 +1,7 @@
+packages:
+  ./fixture.cabal
+  ./lib/fixture-lib.cabal
+
+constraints:
+  -- a comment naming a flag that must be ignored: other +debug,
+  fixture-lib +debug,

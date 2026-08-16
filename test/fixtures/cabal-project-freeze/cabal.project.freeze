@@ -1,0 +1,3 @@
+active-repositories: hackage.haskell.org:merge
+constraints: any.fixture-lib ==0,
+             fixture-lib -debug
