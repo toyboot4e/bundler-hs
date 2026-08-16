@@ -1,1 +1,1 @@
-Main.hs --src lib --minify-lib --minify-import --no-format
+Main.hs --lib lib --minify-lib --minify-import --no-format

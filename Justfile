@@ -41,7 +41,7 @@ repl:
 
 alias r := run
 
-# Bundle a file: just run Main.hs --src lib
+# Bundle a file: just run Main.hs --lib lib
 run *ARGS:
     cabal run -v0 bundler-hs -- {{ARGS}}
 

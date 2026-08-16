@@ -17,7 +17,7 @@ Or, clone the repository and run `cabal install`.
 Pass your solution file and your library directory. The bundle is printed to stdout:
 
 ```sh
-$ bundler-hs Main.hs --src path/to/your/library > submission.hs
+$ bundler-hs Main.hs --lib path/to/your/library > submission.hs
 ```
 
 See `bundler-hs --help` for the full list of options.
@@ -62,6 +62,8 @@ debug = False
 
 A conditional left enclosing nothing is dropped, which happens when the imports or header pragmas between it were hoisted into the bundle's own import and pragma blocks.
 
+Under `--minify-lib` a conditional would otherwise split the library section into a line before it and a line after it. Top-level order carries no meaning in Haskell, so the conditionals are moved to the end of the library section instead and everything else stays on one line. Unminified output leaves every declaration where it was written.
+
 #### When a library module is evaluated instead
 
 Some modules cannot be preserved. A library module is run through the preprocessor whole when:
@@ -75,7 +77,7 @@ The macros used for that evaluation are the ones GHC will have when it compiles 
 Use `-D NAME[=VALUE]` (repeatable) to supply a macro yourself. It takes precedence over both projects:
 
 ```sh
-$ bundler-hs Main.hs --src path/to/your/library -D DEBUG
+$ bundler-hs Main.hs --lib path/to/your/library -D DEBUG
 ```
 
 Note that `-D` only affects modules that are evaluated. A preserved conditional is the compiler's to decide, not the bundler's, so `-D` will not force one of its branches.
@@ -110,5 +112,5 @@ $ just build          # cabal build all
 $ just test           # golden test suite
 $ just test-compile   # golden suite + ghc -fno-code check of every bundle
 $ just test-accept    # re-record goldens after an intentional change
-$ just run Main.hs --src lib
+$ just run Main.hs --lib lib
 ```

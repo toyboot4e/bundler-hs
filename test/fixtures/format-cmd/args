@@ -1,1 +1,1 @@
-Main.hs --src lib --format-cmd {DIR}/format.sh
+Main.hs --lib lib --format-cmd {DIR}/format.sh

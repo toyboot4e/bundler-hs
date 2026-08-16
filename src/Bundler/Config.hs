@@ -18,9 +18,9 @@ data Config = Config
   { -- | The user's source file to bundle.
     cfgInput :: FilePath,
     -- | Roots under which local library modules are looked up
-    -- (@--src DIR@, repeatable). An import @A.B.C@ is expanded iff
+    -- (@--lib DIR@, repeatable). An import @A.B.C@ is expanded iff
     -- @DIR/A/B/C.hs@ exists under one of these.
-    cfgSrcDirs :: [FilePath],
+    cfgLibDirs :: [FilePath],
     -- | CPP macros defined while evaluating the @#@ directives of local
     -- library modules (@-D NAME[=VALUE]@, repeatable). These take
     -- precedence over a project's @cpp-options@.
@@ -90,9 +90,9 @@ configParser =
       )
     <*> many
       ( strOption
-          ( long "src"
+          ( long "lib"
               <> metavar "DIR"
-              <> help "Source directory of local library modules (repeatable)"
+              <> help "Directory of local library modules to expand (repeatable)"
           )
       )
     <*> many

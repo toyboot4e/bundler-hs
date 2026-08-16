@@ -1,1 +1,1 @@
-Main.hs --src liba --src libb --embed-position after
+Main.hs --lib liba --lib libb --embed-position after

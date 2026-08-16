@@ -1,1 +1,1 @@
-Main.hs --src lib -D DEBUG
+Main.hs --lib lib -D DEBUG

@@ -1,1 +1,1 @@
-Main.hs --src lib --embed-position before
+Main.hs --lib lib --embed-position before

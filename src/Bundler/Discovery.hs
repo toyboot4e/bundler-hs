@@ -1,6 +1,6 @@
 module Bundler.Discovery
   ( LocalModule (..),
-    SrcDir,
+    LibDir,
     discoverLocalModules,
     importedModules,
   )
@@ -33,16 +33,16 @@ importedModules :: ParsedFile -> [ModuleName]
 importedModules pf =
   map (unLoc . ideclName . unLoc) (hsmodImports (unLoc (pfModule pf)))
 
--- | A @--src@ dir together with what its cabal project implies for the
+-- | A @--lib@ dir together with what its cabal project implies for the
 -- modules found under it: language flags and CPP macro definitions.
-type SrcDir = (FilePath, DynFlags, [(String, String)])
+type LibDir = (FilePath, DynFlags, [(String, String)])
 
 -- | An import is local iff its source file exists under exactly one
--- @--src@ dir; under several it is ambiguous (error), under none it is
+-- @--lib@ dir; under several it is ambiguous (error), under none it is
 -- external and stays an import.
-lookupLocal :: [SrcDir] -> ModuleName -> IO (Either BundleError (Maybe SrcDir))
-lookupLocal srcDirs m = do
-  hits <- filterM (doesFileExist . fst3) [(pathIn d, flags, defs) | (d, flags, defs) <- srcDirs]
+lookupLocal :: [LibDir] -> ModuleName -> IO (Either BundleError (Maybe LibDir))
+lookupLocal libDirs m = do
+  hits <- filterM (doesFileExist . fst3) [(pathIn d, flags, defs) | (d, flags, defs) <- libDirs]
   pure $ case hits of
     [] -> Right Nothing
     [hit] -> Right (Just hit)
@@ -54,14 +54,14 @@ lookupLocal srcDirs m = do
 -- | Breadth-first expansion of local imports starting from the user's file,
 -- returning modules in dependency order (dependencies before dependents).
 -- Each local file is parsed with the 'DynFlags' and CPP defines of the
--- @--src@ dir it was found under (carrying that project's cabal defaults),
+-- @--lib@ dir it was found under (carrying that project's cabal defaults),
 -- with @extraDefines@ (the command line's @-D@) taking precedence.
 discoverLocalModules ::
   [(String, String)] ->
-  [SrcDir] ->
+  [LibDir] ->
   ParsedFile ->
   IO (Either BundleError [LocalModule])
-discoverLocalModules extraDefines srcDirs userFile = do
+discoverLocalModules extraDefines libDirs userFile = do
   result <- go Map.empty (importedModules userFile)
   pure (result >>= topoSort)
   where
@@ -70,7 +70,7 @@ discoverLocalModules extraDefines srcDirs userFile = do
     go seen (m : rest)
       | m `Map.member` seen = go seen rest
       | otherwise = do
-          hit <- lookupLocal srcDirs m
+          hit <- lookupLocal libDirs m
           case hit of
             Left err -> pure (Left err)
             Right Nothing -> go seen rest
@@ -101,7 +101,7 @@ discoverLocalModules extraDefines srcDirs userFile = do
       where
         step (Left err) _ = pure (Left err)
         step (Right acc) m = do
-          hit <- lookupLocal srcDirs m
+          hit <- lookupLocal libDirs m
           pure (fmap (\h -> acc <> maybe [] (const [m]) h) hit)
 
 topoSort :: Map ModuleName LocalModule -> Either BundleError [LocalModule]

@@ -1,0 +1,12 @@
+{-# LANGUAGE CPP #-}
+module Main ( main ) where
+
+main :: IO ()
+main = print (aL, bL, debugL, cL, dL)
+
+aL :: Int ; aL = 1 ; bL :: Int ; bL = 2 ; cL :: Int ; cL = 3 ; dL :: Int ; dL = 4
+#ifdef DEBUG
+debugL :: Bool ; debugL = True
+#else
+debugL :: Bool ; debugL = False
+#endif

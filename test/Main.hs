@@ -59,7 +59,7 @@ formatFailureSalvage = testCase "format failure saves the unformatted bundle" $ 
       cfg format =
         Config
           { cfgInput = fixture </> "Main.hs",
-            cfgSrcDirs = [],
+            cfgLibDirs = [],
             cfgDefines = [],
             cfgRenameCmd = Nothing,
             cfgFormat = format,
@@ -104,7 +104,7 @@ fixtureTest compileGate name = do
     let rebased =
           cfg
             { cfgInput = dir </> cfgInput cfg,
-              cfgSrcDirs = map (dir </>) (cfgSrcDirs cfg)
+              cfgLibDirs = map (dir </>) (cfgLibDirs cfg)
             }
     result <- bundle rebased
     case (errCase, result) of

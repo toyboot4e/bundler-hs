@@ -16,7 +16,7 @@ data BundleError
   | -- | The bundler's own output failed to re-parse. Always a bundler bug;
     -- the second field is the offending output for diagnosis.
     SelfCheckError String String
-  | -- | A local module resolves to files under more than one @--src@ dir.
+  | -- | A local module resolves to files under more than one @--lib@ dir.
     DuplicateModule String [FilePath]
   | -- | Local modules import each other in a cycle.
     ImportCycle [String]
@@ -62,7 +62,7 @@ renderBundleError err = case err of
       ]
   DuplicateModule name paths ->
     unlines
-      ( ("error: module " <> name <> " is found under more than one --src directory:")
+      ( ("error: module " <> name <> " is found under more than one --lib directory:")
           : map ("  - " <>) paths
       )
   ImportCycle names ->

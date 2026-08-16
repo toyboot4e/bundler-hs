@@ -1,1 +1,1 @@
-Main.hs --src lib --minify-user-code
+Main.hs --lib lib --minify-user-code

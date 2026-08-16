@@ -56,10 +56,10 @@ bundle cfg = runExceptT $ do
   let cliDefines = cfgDefines cfg
       compileDefines = cliDefines <> pdDefines userDefaults
   userFile <- ExceptT (parseUserFile compileDefines userFlags (cfgInput cfg) src)
-  srcDirs <- traverse dirDefaults (cfgSrcDirs cfg)
+  libDirs <- traverse dirDefaults (cfgLibDirs cfg)
   locals <-
     ExceptT
-      (discoverLocalModules compileDefines [(d, flags, pdDefines defs) | (d, flags, defs) <- srcDirs] userFile)
+      (discoverLocalModules compileDefines [(d, flags, pdDefines defs) | (d, flags, defs) <- libDirs] userFile)
   let withSyms0 = [(lm, moduleSymbols (lmParsed lm)) | lm <- locals]
   withSyms <- ExceptT (pure (resolveReExports withSyms0))
   mrenamer <- liftIO (traverse startRenamer (cfgRenameCmd cfg))
@@ -118,8 +118,9 @@ bundle cfg = runExceptT $ do
       out =
         assemble
           (cfgEmbedPosition cfg)
+          (cfgMinify cfg)
           userDefaults
-          [defs | (_, _, defs) <- srcDirs]
+          [defs | (_, _, defs) <- libDirs]
           userFile
           extImportLines
           userSlice
@@ -285,6 +286,7 @@ sliceUserRegion pf patches = do
 -- user's own.
 assemble ::
   EmbedPosition ->
+  MinifyOptions ->
   ProjectDefaults ->
   [ProjectDefaults] ->
   ParsedFile ->
@@ -293,7 +295,7 @@ assemble ::
   [GHC.Hs.LHsDecl GHC.Hs.GhcPs] ->
   [(LocalModule, [GHC.Hs.LHsDecl GHC.Hs.GhcPs])] ->
   String
-assemble embedPos userDefaults libDefaults userFile extImportLines userSlice userDecls locals =
+assemble embedPos minifyOpts userDefaults libDefaults userFile extImportLines userSlice userDecls locals =
   intercalate "\n\n" (filter (not . null) chunks) <> "\n"
   where
     chunks =
@@ -309,8 +311,8 @@ assemble embedPos userDefaults libDefaults userFile extImportLines userSlice use
       | null locals = intercalate "\n\n" userPieces
       | otherwise = intercalate "\n\n" ("-- ### (user code)" : userPieces)
     bodyChunks = case embedPos of
-      EmbedAfter -> [userChunk] <> map localChunk locals
-      EmbedBefore -> map localChunk locals <> [userChunk]
+      EmbedAfter -> [userChunk] <> localChunks
+      EmbedBefore -> localChunks <> [userChunk]
 
     -- The user's declarations: the patched original text when available
     -- (directives included), otherwise pretty-printed with any preserved
@@ -344,10 +346,27 @@ assemble embedPos userDefaults libDefaults userFile extImportLines userSlice use
       ]
     imports = nubOrd (userImports <> extImportLines)
 
-    localChunk (lm, decls) =
-      intercalate "\n\n" $
-        ("-- ### " <> moduleNameString (lmName lm))
-          : declPieces (pfDirectives (lmParsed lm)) decls
+    -- Minifying the library section collapses each run of consecutive
+    -- declarations onto one line, and a preserved conditional breaks the
+    -- run: the code before it and the code after it land on separate lines.
+    -- Top-level order carries no meaning in Haskell, so the conditionals go
+    -- last and everything else joins up into a single line. Unminified
+    -- output keeps every declaration where it was written.
+    localChunks
+      | moLib minifyOpts =
+          [chunkFor lm [p | (False, p) <- ps] | (lm, ps) <- pieced]
+            <> [ intercalate "\n\n" conds
+               | let conds = [p | (_, ps) <- pieced, (True, p) <- ps],
+                 not (null conds)
+               ]
+      | otherwise = [chunkFor lm (map snd ps) | (lm, ps) <- pieced]
+      where
+        pieced =
+          [ (lm, taggedDeclPieces (pfDirectives (lmParsed lm)) decls)
+          | (lm, decls) <- locals
+          ]
+        chunkFor lm ps =
+          intercalate "\n\n" (("-- ### " <> moduleNameString (lmName lm)) : ps)
 
 -- | Render declarations, joining each type/pattern-synonym signature with
 -- the binding that follows it (GHC parses them as separate declarations,
@@ -356,20 +375,38 @@ assemble embedPos userDefaults libDefaults userFile extImportLines userSlice use
 -- boundaries they came from. A signature merges with its binding unless a
 -- directive separates them.
 declPieces :: [(Int, Int, String)] -> [GHC.Hs.LHsDecl GHC.Hs.GhcPs] -> [String]
-declPieces directives = go 0
+declPieces directives decls = map snd (taggedDeclPieces directives decls)
+
+-- | 'declPieces', with each piece marked as to whether a preserved
+-- conditional encloses it. Directive lines themselves count as enclosed, so
+-- filtering on the mark keeps every conditional block intact and in order.
+taggedDeclPieces ::
+  [(Int, Int, String)] ->
+  [GHC.Hs.LHsDecl GHC.Hs.GhcPs] ->
+  [(Bool, String)]
+taggedDeclPieces directives = go 0 0
   where
-    go i [] = dirPieces i
-    go i (d : ds) =
-      dirPieces i <> case ds of
+    go depth i [] = fst (dirPieces depth i)
+    go depth i (d : ds) =
+      pieces <> case ds of
         d2 : rest
           | signatureFor d d2,
             null (directivesAt (i + 1)) ->
-              (renderDecl d <> "\n" <> renderDecl d2) : go (i + 2) rest
-        _ -> renderDecl d : go (i + 1) ds
-    dirPieces i = case pruneEmptyConditionals (directivesAt i) of
-      [] -> []
-      ts -> [intercalate "\n" ts]
+              (depth' > 0, renderDecl d <> "\n" <> renderDecl d2) : go depth' (i + 2) rest
+        _ -> (depth' > 0, renderDecl d) : go depth' (i + 1) ds
+      where
+        (pieces, depth') = dirPieces depth i
+
+    dirPieces depth i = case pruneEmptyConditionals (directivesAt i) of
+      [] -> ([], depth)
+      ts -> ([(True, intercalate "\n" ts)], depth + sum (map nesting ts))
+
     directivesAt i = [text | (j, _, text) <- directives, j == i]
+
+    nesting l = case takeWhile isAlpha (dropWhile isSpace (drop 1 l)) of
+      kw | kw `elem` ["if", "ifdef", "ifndef"] -> 1 :: Int
+      "endif" -> -1
+      _ -> 0
 
 -- | Drop conditionals left enclosing nothing, which happens when everything
 -- between them was an import or a header pragma and got hoisted into the
