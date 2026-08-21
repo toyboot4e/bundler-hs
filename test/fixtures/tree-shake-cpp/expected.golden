@@ -1,0 +1,16 @@
+{-# LANGUAGE CPP #-}
+
+module Main
+  ( main
+  ) where
+
+main :: IO ()
+main = print pick
+-- ### Cond
+#ifdef FAST
+pick :: Int
+pick = 1
+#else
+pick :: Int
+pick = 2
+#endif

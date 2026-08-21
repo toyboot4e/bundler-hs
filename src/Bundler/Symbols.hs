@@ -4,6 +4,7 @@ module Bundler.Symbols
     SymKind (..),
     ModuleSymbols (..),
     moduleSymbols,
+    declBinders,
     importVisibleOrigins,
     nsKeyOf,
     occKeyOf,

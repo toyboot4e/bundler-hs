@@ -41,6 +41,7 @@ library
     Bundler.Rename.Plan
     Bundler.RenameCmd
     Bundler.Render
+    Bundler.Shake
     Bundler.SourcePatch
     Bundler.Symbols
 

@@ -1,0 +1,14 @@
+module Main
+  ( main
+  ) where
+
+-- This one is still called, so this comment stays.
+answer :: Int
+answer = 3
+
+main :: IO ()
+main = print (solve [1, 2, answer])
+
+-- ### Algo
+solve :: [Int] -> Int
+solve = sum

@@ -22,4 +22,3 @@ grow x = x + 1
 -- ### Extra
 shrink :: Int -> Int
 shrink x = flatten (grow x) - 1
--- ### Bulk

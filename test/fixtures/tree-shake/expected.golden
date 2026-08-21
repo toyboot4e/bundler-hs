@@ -1,0 +1,24 @@
+module Main
+  ( main
+  ) where
+
+main :: IO ()
+main = putStrLn (used (Kept 1))
+
+-- ### Shaken
+class Pretty a where
+  pretty :: a -> String
+
+data Kept =
+  Kept Int
+
+instance Pretty Kept where
+  pretty (Kept n) = "kept " <> show n
+
+infixl 6 +++
+(+++) :: Int -> Int -> Int
+a +++ b = a + b
+
+{-# INLINE used #-}
+used :: Kept -> String
+used k = pretty k <> show (1 +++ 2)

@@ -15,6 +15,7 @@ import Bundler.Rename.Apply
 import Bundler.Rename.Plan
 import Bundler.RenameCmd
 import Bundler.Render
+import Bundler.Shake
 import Bundler.SourcePatch (Patch, applyPatches)
 import Bundler.Symbols
 import Control.Monad.IO.Class (liftIO)
@@ -22,6 +23,8 @@ import Control.Monad.Trans.Except (ExceptT (..), catchE, runExceptT, throwE)
 import Data.ByteString.Lazy.Char8 qualified as LBS8
 import Data.Char (isAlpha, isSpace)
 import Data.Containers.ListUtils (nubOrd)
+import Data.IntSet (IntSet)
+import Data.IntSet qualified as IntSet
 import Data.List (dropWhileEnd, intercalate, intersect, sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
@@ -32,7 +35,7 @@ import GHC.Hs qualified
 import GHC.Types.Name.Occurrence (occNameString)
 import GHC.Types.Name.Reader (rdrNameOcc)
 import GHC.Types.SrcLoc (SrcSpan (..), srcSpanEndLine, srcSpanStartLine, unLoc)
-import Language.Haskell.Syntax.Module.Name (mkModuleName, moduleNameString)
+import Language.Haskell.Syntax.Module.Name (ModuleName, mkModuleName, moduleNameString)
 import System.Directory (getTemporaryDirectory)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory)
@@ -66,39 +69,64 @@ bundle cfg = runExceptT $ do
       (discoverLocalModules compileDefines [(d, flags, pdDefines defs) | (d, flags, defs) <- libDirs] userFile)
   let withSyms0 = [(lm, moduleSymbols (lmParsed lm)) | lm <- locals]
   withSyms <- ExceptT (pure (resolveReExports withSyms0))
+  let userSyms = moduleSymbols userFile
+      symsOf = Map.fromList [(lmName lm, syms) | (lm, syms) <- withSyms]
+  -- Reachability is decided before renaming, so the names of the
+  -- declarations that go never take part in the bundle's flat namespace.
+  live <- ExceptT (pure (shakeLive cfg symsOf userFile userSyms withSyms))
+  let liveDeclsOf file decls = keepLive (lfDecls file) decls
+      shakenSyms file syms = syms {msAll = Map.restrictKeys (msAll syms) (lfKeys file)}
   mrenamer <- liftIO (traverse startRenamer (cfgRenameCmd cfg))
-  plan <- ExceptT (mkRenamePlan mrenamer userFile (moduleSymbols userFile) withSyms)
-  let symsOf = Map.fromList [(lmName lm, syms) | (lm, syms) <- withSyms]
-      renameWith env pf = applyRenames plan symsOf env (declsOf pf)
+  plan <-
+    ExceptT
+      ( mkRenamePlan
+          mrenamer
+          userFile
+          (shakenSyms (lsUser live) userSyms)
+          [(lm, shakenSyms (liveLocal live (lmName lm)) syms) | (lm, syms) <- withSyms]
+      )
   libEnvs0 <-
     traverse
       (\lm -> ExceptT (pure (mkResolveEnv plan symsOf (Just (lmName lm)) (lmParsed lm))))
       locals
   userEnv <- ExceptT (pure (mkResolveEnv plan symsOf Nothing userFile))
-  let canonicalExts =
+  -- A module tree shaking emptied contributes nothing to the bundle: no
+  -- banner, no pragmas, and none of its external imports.
+  let liveLocals =
+        [ (lm, decls, remapDirectives idxs (pfDirectives (lmParsed lm)), env)
+        | (lm, env) <- zip locals libEnvs0,
+          let file = liveLocal live (lmName lm),
+          let idxs = lfDecls file,
+          let decls = liveDeclsOf file (declsOf (lmParsed lm)),
+          not (null decls)
+        ]
+      canonicalExts =
         Set.toAscList . Set.fromList . concat $
-          [Map.elems (reQualExt e) <> Map.elems (reUnqualExt e) | e <- libEnvs0]
+          [Map.elems (reQualExt e) <> Map.elems (reUnqualExt e) | (_, _, _, e) <- liveLocals]
   extAliases <- traverse (queryExtAlias mrenamer) canonicalExts
   closeRenamer mrenamer
   let extAliasMap = Map.fromList extAliases
-      libEnvs = [e {reExtAlias = extAliasMap} | e <- libEnvs0]
   renamedLocals <-
     sequence
-      [ ExceptT (pure ((,) lm <$> renameWith env (lmParsed lm)))
-      | (lm, env) <- zip locals libEnvs
+      [ ExceptT (pure ((,,) lm dirs <$> applyRenames plan symsOf env {reExtAlias = extAliasMap} decls))
+      | (lm, decls, dirs, env) <- liveLocals
       ]
+  let userDecls = liveDeclsOf (lsUser live) (declsOf userFile)
+      userDirectives = remapDirectives (lfDecls (lsUser live)) (pfDirectives userFile)
+      droppedUser = droppedUserLines userFile (lfDecls (lsUser live))
   (renamedUser, userPatches) <-
-    ExceptT (pure (applyRenamesPatched plan symsOf userEnv (declsOf userFile)))
+    ExceptT (pure (applyRenamesPatched plan symsOf userEnv userDecls))
   -- The user's own section is carried as original source text with the
   -- renames spliced in, so comments and formatting survive; when the
   -- patches cannot be applied cleanly, fall back to pretty-printing.
-  let userSlice = sliceUserRegion userFile userPatches
-  case (userSlice, hsmodDecls (unLoc (pfModule userFile))) of
+  let userSlice = sliceUserRegion userFile droppedUser userPatches
+  case (userSlice, userDecls) of
     (Nothing, _ : _) ->
       liftIO . hPutStrLn stderr $
         "note: user code could not be carried verbatim; comments are dropped"
     _ -> pure ()
-  let keptOpen = nubOrd (map renderImport (concatMap reOpenExtImports libEnvs))
+  let keptOpen =
+        nubOrd (map renderImport (concatMap (\(_, _, _, e) -> reOpenExtImports e) liveLocals))
       -- An explicit import of Prelude - qualified or not - cancels the
       -- implicit one for the whole merged module. When a library's rewritten
       -- references force a canonical Prelude import and the user's file has
@@ -126,8 +154,10 @@ bundle cfg = runExceptT $ do
           userDefaults
           [defs | (_, _, defs) <- libDirs]
           userFile
+          (Set.fromList (map lmName locals))
           extImportLines
           userSlice
+          userDirectives
           renamedUser
           renamedLocals
   case keptOpen of
@@ -225,8 +255,8 @@ stripUserBanner = unlines . go . lines
 -- imports (the imports themselves are rebuilt), are prepended in their
 -- original order. 'Nothing' when there is nothing to slice or a patch
 -- cannot be applied cleanly.
-sliceUserRegion :: ParsedFile -> [Patch] -> Maybe String
-sliceUserRegion pf patches = do
+sliceUserRegion :: ParsedFile -> IntSet -> [Patch] -> Maybe String
+sliceUserRegion pf dropped patches = do
   let modl = unLoc (pfModule pf)
       realEnd sp = case sp of
         RealSrcSpan r _ -> [srcSpanEndLine r]
@@ -258,8 +288,12 @@ sliceUserRegion pf patches = do
   patched <- applyPatches patches (pfSource pf)
   let patchedLines = lines patched
       region =
-        dropWhileEnd null . dropWhile null $
-          drop (start - 1) patchedLines
+        map snd . dropWhileEnd (null . snd) . dropWhile (null . snd) $
+          [ (n, l)
+          | (n, l) <- zip [1 ..] patchedLines,
+            n >= start,
+            n `IntSet.notMember` dropped
+          ]
       importSpans =
         [ (srcSpanStartLine r, srcSpanEndLine r)
         | i <- hsmodImports modl,
@@ -282,7 +316,116 @@ sliceUserRegion pf patches = do
             ]
       preDirs = [(line, text) | (_, line, text) <- pfDirectives pf, line < start]
       pre = map snd (sortOn fst (importComments <> preDirs))
-  pure (intercalate "\n" (pre <> region))
+      -- Removing a declaration leaves its blank line behind, next to the
+      -- one the declaration before it already had.
+      body
+        | IntSet.null dropped = region
+        | otherwise = squeezeBlanks region
+  pure (intercalate "\n" (pre <> body))
+
+-- | Collapse runs of blank lines into one.
+squeezeBlanks :: [String] -> [String]
+squeezeBlanks ("" : rest@("" : _)) = squeezeBlanks rest
+squeezeBlanks (l : rest) = l : squeezeBlanks rest
+squeezeBlanks [] = []
+
+-- | The source lines of the user's declarations that tree shaking dropped,
+-- each together with the comment block written directly above it.
+droppedUserLines :: ParsedFile -> IntSet -> IntSet
+droppedUserLines pf liveDecls =
+  -- Two declarations can share a line (@a = 1; b = 2@), and the surviving
+  -- one keeps it.
+  IntSet.fromList (concatMap range gone) `IntSet.difference` keptLines
+  where
+    srcLines = lines (pfSource pf)
+    spans keep =
+      [ real
+      | (i, d) <- zip [0 ..] (declsOf pf),
+        keep (i `IntSet.member` liveDecls),
+        RealSrcSpan real _ <- [GHC.Hs.getLocA d]
+      ]
+    gone = spans not
+    keptLines =
+      IntSet.fromList
+        [ line
+        | real <- spans id,
+          line <- [srcSpanStartLine real .. srcSpanEndLine real]
+        ]
+    range real = [commentStart (srcSpanStartLine real) .. srcSpanEndLine real]
+    commentStart n
+      | n > 1,
+        Just l <- lookup (n - 1) (zip [1 ..] srcLines),
+        isAttached l =
+          commentStart (n - 1)
+      | otherwise = n
+    isAttached l = case dropWhile (== ' ') l of
+      '-' : '-' : _ -> True
+      '{' : '-' : '#' : _ -> True
+      _ -> False
+
+-- | Keep the declarations tree shaking marked live, by index.
+keepLive :: IntSet -> [a] -> [a]
+keepLive live xs = [x | (i, x) <- zip [0 ..] xs, i `IntSet.member` live]
+
+-- | Re-anchor preserved CPP directives after declarations were dropped: a
+-- directive anchored to declaration @i@ moves to wherever the declarations
+-- that survived before it now end.
+remapDirectives :: IntSet -> [(Int, Int, String)] -> [(Int, Int, String)]
+remapDirectives live directives =
+  [(IntSet.size (fst (IntSet.split i live)), line, text) | (i, line, text) <- directives]
+
+-- | Decide what survives, honoring @--tree-shake-lib@ / @--tree-shake-app@.
+-- With neither of them everything does, and the reachability graph (and the
+-- environments it needs) is never built.
+shakeLive ::
+  Config ->
+  Map.Map ModuleName ModuleSymbols ->
+  ParsedFile ->
+  ModuleSymbols ->
+  [(LocalModule, ModuleSymbols)] ->
+  Either BundleError LiveSet
+shakeLive cfg symsOf userFile userSyms withSyms
+  | not (anyTreeShake opts) = Right everything
+  | otherwise = do
+      libEnvs <-
+        traverse
+          (\(lm, _) -> mkResolveEnv idPlan symsOf (Just (lmName lm)) (lmParsed lm))
+          withSyms
+      userEnv <- mkResolveEnv idPlan symsOf Nothing userFile
+      let inputs =
+            ShakeInput Nothing (declsOf userFile) userSyms userEnv
+              : [ ShakeInput (Just (lmName lm)) (declsOf (lmParsed lm)) syms env
+                | ((lm, syms), env) <- zip withSyms libEnvs
+                ]
+          appRoots
+            | tsApp opts = userRoots userFile userSyms
+            | otherwise = Nothing
+          wholeFiles =
+            Set.fromList $
+              [Nothing | appRoots == Nothing]
+                <> [Just (lmName lm) | not (tsLib opts), (lm, _) <- withSyms]
+          roots =
+            Set.fromList
+              [(Nothing, key) | keys <- maybe [] pure appRoots, key <- Set.toList keys]
+      pure (shake wholeFiles roots inputs)
+  where
+    opts = cfgTreeShake cfg
+    everything =
+      keepEverything
+        (length (declsOf userFile), userSyms)
+        [ (lmName lm, length (declsOf (lmParsed lm)), syms)
+        | (lm, syms) <- withSyms
+        ]
+    -- Reachability only needs to know which module a written name comes
+    -- from, so the plan behind these environments may name everything as it
+    -- already is.
+    idPlan =
+      RenamePlan
+        ( Map.fromList
+            [ (lmName lm, Map.mapWithKey (\(_, name) _ -> name) (msAll syms))
+            | (lm, syms) <- withSyms
+            ]
+        )
 
 -- | Stitch the output text together from pretty-printed pieces: pragma
 -- union, user module header, merged imports, then the (renamed)
@@ -294,12 +437,16 @@ assemble ::
   ProjectDefaults ->
   [ProjectDefaults] ->
   ParsedFile ->
+  -- | Every local module that was expanded, including any that tree shaking
+  -- emptied: their imports are gone from the bundle all the same.
+  Set.Set ModuleName ->
   [String] ->
   Maybe String ->
+  [(Int, Int, String)] ->
   [GHC.Hs.LHsDecl GHC.Hs.GhcPs] ->
-  [(LocalModule, [GHC.Hs.LHsDecl GHC.Hs.GhcPs])] ->
+  [(LocalModule, [(Int, Int, String)], [GHC.Hs.LHsDecl GHC.Hs.GhcPs])] ->
   String
-assemble embedPos minifyOpts userDefaults libDefaults userFile extImportLines userSlice userDecls locals =
+assemble embedPos minifyOpts userDefaults libDefaults userFile localNames extImportLines userSlice userDirectives userDecls locals =
   intercalate "\n\n" (filter (not . null) chunks) <> "\n"
   where
     chunks =
@@ -325,7 +472,7 @@ assemble embedPos minifyOpts userDefaults libDefaults userFile extImportLines us
     -- separate them.
     userPieces = case userSlice of
       Just text -> [text]
-      Nothing -> declPieces (pfDirectives userFile) userDecls
+      Nothing -> declPieces userDirectives userDecls
 
     -- The user's header block comes first and verbatim, so its comments
     -- (and the order of its own pragmas) survive; the pragmas the bundle
@@ -337,10 +484,9 @@ assemble embedPos minifyOpts userDefaults libDefaults userFile extImportLines us
         [ pdPragmas userDefaults,
           pfPragmas userFile,
           concatMap pdPragmas libDefaults,
-          concatMap (pfPragmas . lmParsed . fst) locals
+          concatMap (\(lm, _, _) -> pfPragmas (lmParsed lm)) locals
         ]
 
-    localNames = Set.fromList (map (lmName . fst) locals)
     -- The user's imports survive verbatim (minus expanded local modules);
     -- library imports arrive pre-digested as canonical/kept lines.
     userImports =
@@ -366,8 +512,8 @@ assemble embedPos minifyOpts userDefaults libDefaults userFile extImportLines us
       | otherwise = [chunkFor lm (map snd ps) | (lm, ps) <- pieced]
       where
         pieced =
-          [ (lm, taggedDeclPieces (pfDirectives (lmParsed lm)) decls)
-          | (lm, decls) <- locals
+          [ (lm, taggedDeclPieces dirs decls)
+          | (lm, dirs, decls) <- locals
           ]
         chunkFor lm ps =
           intercalate "\n\n" (("-- ### " <> moduleNameString (lmName lm)) : ps)

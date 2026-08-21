@@ -1,0 +1,8 @@
+-- No module header at all, so there is no export list to shake against:
+-- the file is Main and main is the only way in.
+main :: IO ()
+main = print (solve [1, 2, 3])
+
+-- ### Algo
+solve :: [Int] -> Int
+solve = sum

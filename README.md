@@ -1,6 +1,6 @@
 # bundler-hs
 
-`bundler-hs` bundles a Haskell solution file and the local library modules it imports into a single file for competitive programming submissions. It handles qualified imports: `A.f` and `B.f` can coexist, renamed to `fA` and `fB`. Names that nothing competes for keep their original spelling.
+`bundler-hs` bundles a Haskell solution file and the local library modules it imports into a single file for competitive programming submissions. It handles qualified imports: `A.f` and `B.f` can coexist, renamed to `fA` and `fB`. Names that nothing competes for keep their original spelling, and `--tree-shake` leaves out the library code you never reach.
 
 ## Installation
 
@@ -49,6 +49,27 @@ import qualified Data.Deque          -- push   ->  pushD, else pushDeque, else p
 Operators cannot carry a suffix, so they always keep their name, which makes two library modules exporting the same operator an error. Binding one alias to more than one module is an error too. Both are resolvable with `--rename-cmd`, which is told the suffix the default rule settled on (empty for a name that keeps its spelling), so `echo "$name$suffix"` reproduces the default behavior.
 
 In library modules, `import Prelude hiding (…)` lists are pruned if the conflicting items are renamed. Names hidden for other reasons stay hidden (with a warning).
+
+### Tree shaking
+
+Off by default. `--tree-shake-lib` keeps only the library declarations your code actually reaches, `--tree-shake-app` does the same for your own file, and `--tree-shake` turns on both:
+
+```sh
+$ bundler-hs Main.hs --lib path/to/your/library --tree-shake-lib > submission.hs
+```
+
+Reachability is decided before renaming, so what goes does not compete for spellings either: a dropped `Util.sort` leaves `sort` free for whoever survives.
+
+The roots are every declaration of your own file for `--tree-shake-lib`. For `--tree-shake-app` they are your module's export list, or `main` alone when the file has no export list and is `Main` (a file with no module header is `Main`). Any other module without an export list exports everything it defines, so nothing of it can go.
+
+What a declaration needs is read generously: every name written anywhere inside it counts, local binders included, so the analysis errs towards keeping code. Only declarations that never stand on their own are dropped without being named:
+
+- an instance goes when a local class or type of its head goes, and stays when its head is entirely external (an orphan instance is always kept),
+- a type signature, a fixity declaration, an `INLINE` or `SPECIALIZE` pragma goes with the binding it annotates.
+
+A module that loses every declaration loses its banner, its language pragmas, and its external imports along with it. Comments written directly above a dropped declaration of your own file go with it.
+
+Preserved CPP conditionals are analysed with every branch in play, so a declaration only one branch uses still survives. A conditional left enclosing nothing is dropped like any other empty one.
 
 ### Language extension unification
 

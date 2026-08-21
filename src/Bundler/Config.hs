@@ -3,8 +3,11 @@ module Bundler.Config
     EmbedPosition (..),
     FormatMode (..),
     MinifyOptions (..),
+    TreeShakeOptions (..),
     anyMinify,
+    anyTreeShake,
     noMinify,
+    noTreeShake,
     configParserInfo,
     parserPrefs,
     parseConfigFromArgs,
@@ -32,6 +35,9 @@ data Config = Config
     cfgFormat :: FormatMode,
     -- | Which sections of the bundle are minified (after formatting).
     cfgMinify :: MinifyOptions,
+    -- | Which sections of the bundle unreachable declarations are dropped
+    -- from.
+    cfgTreeShake :: TreeShakeOptions,
     -- | Where the expanded library code goes relative to the user's own
     -- declarations.
     cfgEmbedPosition :: EmbedPosition
@@ -75,6 +81,23 @@ data MinifyOptions = MinifyOptions
   }
   deriving (Show)
 
+-- | Which sections of the bundle tree shaking applies to. Reachability is
+-- computed over the whole bundle either way; these only say whose dead
+-- declarations are allowed to go.
+data TreeShakeOptions = TreeShakeOptions
+  { -- | Expanded library modules: keep only what your code reaches.
+    tsLib :: Bool,
+    -- | Your own file: keep only what its exports (or @main@) reach.
+    tsApp :: Bool
+  }
+  deriving (Show)
+
+noTreeShake :: TreeShakeOptions
+noTreeShake = TreeShakeOptions False False
+
+anyTreeShake :: TreeShakeOptions -> Bool
+anyTreeShake o = tsLib o || tsApp o
+
 noMinify :: MinifyOptions
 noMinify = MinifyOptions False False False False
 
@@ -113,6 +136,7 @@ configParser =
       )
     <*> formatMode
     <*> minifyOptions
+    <*> treeShakeOptions
     <*> option
       readEmbedPosition
       ( long "embed-position"
@@ -178,6 +202,25 @@ minifyOptions =
     combine everything lib user imports pragmas
       | everything = MinifyOptions True user True True
       | otherwise = MinifyOptions lib user imports pragmas
+
+treeShakeOptions :: Parser TreeShakeOptions
+treeShakeOptions =
+  combine
+    <$> switch
+      ( long "tree-shake"
+          <> help "Drop unreachable declarations everywhere (shorthand for the two below)"
+      )
+    <*> switch
+      ( long "tree-shake-lib"
+          <> help "Drop library declarations your code never reaches"
+      )
+    <*> switch
+      ( long "tree-shake-app"
+          <> help "Drop your own declarations that your exports (or main) never reach"
+      )
+  where
+    combine everything lib app =
+      TreeShakeOptions (everything || lib) (everything || app)
 
 configParserInfo :: ParserInfo Config
 configParserInfo =
