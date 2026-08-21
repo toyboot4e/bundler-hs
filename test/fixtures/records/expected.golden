@@ -5,35 +5,35 @@ module Main
   ( main
   ) where
 
-shift :: PointRec -> PointRec
-shift p = p {pxRec = pxRec p + 1}
+shift :: Point -> Point
+shift p = p {px = px p + 1}
 
-viaPuns :: PointRec -> Int
-viaPuns PointRec {pxRec = px} = px
+viaPuns :: Point -> Int
+viaPuns Point {px = px} = px
 
-viaWildcards :: PointRec -> Int
-viaWildcards PointRec {pyRec = py, pxRec = px} = px + py
+viaWildcards :: Point -> Int
+viaWildcards Point {py = py, px = px} = px + py
 
-build :: Int -> PointRec
+build :: Int -> Point
 build n =
   let px = n
       py = n * 2
-   in PointRec {pyRec = py, pxRec = px}
+   in Point {py = py, px = px}
 
 main :: IO ()
 main = do
-  let p = PointRec {pxRec = 3, pyRec = 4}
-  print (normRec p)
-  print (normRec (shift p))
+  let p = Point {px = 3, py = 4}
+  print (norm p)
+  print (norm (shift p))
   print (viaPuns p)
   print (viaWildcards p)
-  print (normRec (build 5))
+  print (norm (build 5))
 
 -- ### Rec
-data PointRec = PointRec
-  { pxRec :: Int
-  , pyRec :: Int
+data Point = Point
+  { px :: Int
+  , py :: Int
   }
 
-normRec :: PointRec -> Int
-normRec PointRec {pyRec = py, pxRec = px} = px * px + py * py
+norm :: Point -> Int
+norm Point {py = py, px = px} = px * px + py * py

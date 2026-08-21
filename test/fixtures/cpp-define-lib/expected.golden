@@ -5,23 +5,23 @@ module Main
   ) where
 
 main :: IO ()
-main = print (limitMacro, twiceMacro 4, totalMacro, flaggedMacro, stateMacro, labelMacro)
+main = print (limitM, twiceM 4, totalM, flaggedM, stateM, labelM)
 
 -- ### Macro
-limitMacro :: Int
-limitMacro = 1000000007
+limitM :: Int
+limitM = 1000000007
 
-twiceMacro :: Int -> Int
-twiceMacro n = ((n) + (n))
+twiceM :: Int -> Int
+twiceM n = ((n) + (n))
 
-totalMacro :: Int
-totalMacro = ((1) + (2) + (3))
+totalM :: Int
+totalM = ((1) + (2) + (3))
 
-flaggedMacro :: Bool
-flaggedMacro = True
+flaggedM :: Bool
+flaggedM = True
 
-stateMacro :: Int
-stateMacro = 0
+stateM :: Int
+stateM = 0
 
-labelMacro :: (String, Char)
-labelMacro = ("LIMIT stays", 'X')
+labelM :: (String, Char)
+labelM = ("LIMIT stays", 'X')

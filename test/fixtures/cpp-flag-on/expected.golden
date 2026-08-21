@@ -5,11 +5,11 @@ module Main
   ) where
 
 main :: IO ()
-main = print (debugMac, markerMac)
+main = print (debugM, markerM)
 
 -- ### Mac
-markerMac :: Int
-markerMac = 7
+markerM :: Int
+markerM = 7
 
-debugMac :: Bool
-debugMac = True
+debugM :: Bool
+debugM = True

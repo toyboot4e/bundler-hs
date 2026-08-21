@@ -6,8 +6,8 @@ module Main
   ) where
 
 -- ### Algo.C
-sumUpC :: [Int] -> Int
-sumUpC =
+sumUp :: [Int] -> Int
+sumUp =
   sum
     . map
         (\case
@@ -16,11 +16,11 @@ sumUpC =
 
 -- ### Algo.B
 solveBB :: [Int] -> Int
-solveBB xs = sumUpC xs * 2
+solveBB xs = sumUp xs * 2
 
 -- ### Algo.A
 solveAA :: [Int] -> Int
-solveAA xs = sumUpC xs + 1
+solveAA xs = sumUp xs + 1
 
 main :: IO ()
 main = do

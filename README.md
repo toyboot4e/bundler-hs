@@ -1,6 +1,6 @@
 # bundler-hs
 
-`bundler-hs` bundles a Haskell solution file and the local library modules it imports into a single file for competitive programming submissions. It handles qualified imports: `A.f` and `B.f` can coexist, renamed to `fA` and `fB`.
+`bundler-hs` bundles a Haskell solution file and the local library modules it imports into a single file for competitive programming submissions. It handles qualified imports: `A.f` and `B.f` can coexist, renamed to `fA` and `fB`. Names that nothing competes for keep their original spelling.
 
 ## Installation
 
@@ -26,16 +26,27 @@ See `bundler-hs --help` for the full list of options.
 
 ### Import unification and renaming
 
-Imports of local library modules are renamed to avoid name conflicts. Each file is parsed with its own imports in scope, and the bundle merges the external imports of every file.
+Local library modules are merged into one flat namespace, and names are renamed only as far as that takes. Each file is parsed with its own imports in scope, and the bundle merges the external imports of every file.
 
-The default suffix for a module is the alias from your own qualified import (binding one alias to more than one module is an error):
+A name keeps its original spelling when nothing in the bundle competes for it. That takes two things. No file may import its module `qualified`, because an unqualified import means the name is already written the way it is defined. And nothing else may claim the name: not another library module, not your own top level, not Prelude, not your own import lists.
 
 ```haskell
-import qualified SuffixArray as SA   -- SuffixArray.build  ->  buildSA
-import qualified Data.Deque          -- push  ->  pushDataDeque (no alias)
+import Deque   -- push  ->  push
 ```
 
-The renaming can be customized with the `--rename-cmd` option.
+Every other name takes its module's suffix, and the shortest suffix that keeps the bundle collision-free wins:
+
+1. the alias of your own `qualified ... as` import,
+2. the initials of the last component of the module name,
+3. that component itself,
+4. the whole module name, flattened.
+
+```haskell
+import qualified SuffixArray as SA   -- build  ->  buildSA
+import qualified Data.Deque          -- push   ->  pushD, else pushDeque, else pushDataDeque
+```
+
+Operators cannot carry a suffix, so they always keep their name, which makes two library modules exporting the same operator an error. Binding one alias to more than one module is an error too. Both are resolvable with `--rename-cmd`, which is told the suffix the default rule settled on (empty for a name that keeps its spelling), so `echo "$name$suffix"` reproduces the default behavior.
 
 In library modules, `import Prelude hiding (…)` lists are pruned if the conflicting items are renamed. Names hidden for other reasons stay hidden (with a warning).
 
@@ -109,6 +120,7 @@ The output is formatted with [hindent](https://github.com/mihaimaruseac/hindent)
 
 Other known limitations:
 
+- A name that keeps its original spelling is checked against Prelude and against the names your own explicit import lists bring in. An **open import** (`import Data.List`) does not say what it brings in, so a library name colliding with one of its exports makes the bundle ambiguous. Give that import an explicit list, or move the name out of the way with `--rename-cmd`.
 - **Formatting is not preserved.**
 - **Library comments are not preserved.** Their CPP directives are, but their comments are not.
 - A library module that uses `#define`, `#undef`, or `#include` has all of its conditionals resolved at bundle time, not just the ones that need it. There is no `-U` to undefine a macro for that pass.

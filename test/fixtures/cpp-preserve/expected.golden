@@ -13,9 +13,9 @@ debug _ = pure ()
 #endif
 main :: IO ()
 main = do
-  debug (incAlg 1)
-  print (incAlg 41)
+  debug (incA 1)
+  print (incA 41)
 
 -- ### Alg
-incAlg :: Int -> Int
-incAlg = (+ 1)
+incA :: Int -> Int
+incA = (+ 1)

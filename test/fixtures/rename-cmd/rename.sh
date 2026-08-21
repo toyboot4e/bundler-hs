@@ -1,8 +1,8 @@
 #!/bin/sh
-# One TSV line per query: kind, module, default-suffix, old name.
+# One TSV line per query: kind, module, old name, default-suffix.
 # One line per response: the new name (or qualifier, for extmod).
 tab=$(printf '\t')
-while IFS="$tab" read -r kind mod alias name; do
+while IFS="$tab" read -r kind mod name suffix; do
   case "$kind" in
     extmod) printf '%s\n' "$mod" | tr -d '.' ;;
     op)
@@ -12,6 +12,6 @@ while IFS="$tab" read -r kind mod alias name; do
         *) printf '%s\n' "$name" ;;
       esac
       ;;
-    *) printf '%s_%s\n' "$name" "$alias" ;;
+    *) printf '%s_%s\n' "$name" "$suffix" ;;
   esac
 done

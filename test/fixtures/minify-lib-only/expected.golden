@@ -9,10 +9,10 @@ solve =
   sortBy (comparing negate)
     . map
         (\case
-           0 -> incAlg 0
+           0 -> incA 0
            n -> n)
 
 main :: IO ()
 main = print (solve [3, 0, 2, 1])
 
-incAlg :: Int -> Int ; incAlg = (+ 1)
+incA :: Int -> Int ; incA = (+ 1)

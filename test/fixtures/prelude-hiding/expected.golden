@@ -8,11 +8,11 @@ main :: IO ()
 main = do
   -- Prelude's read must survive the bundling.
   print (read "42" :: Int)
-  print (readPairReader "abc")
+  print (readPair "abc")
 
 -- ### Reader
-readReader :: String -> Int
-readReader s = length s
+readR :: String -> Int
+readR s = length s
 
-readPairReader :: String -> (Int, Int)
-readPairReader s = (readReader s, readReader (reverse s))
+readPair :: String -> (Int, Int)
+readPair s = (readR s, readR (reverse s))

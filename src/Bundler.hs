@@ -195,8 +195,8 @@ bundle cfg = runExceptT $ do
             RenameQuery
               { rqKind = "extmod",
                 rqModule = moduleNameString m,
-                rqSuffix = filter (/= '.') (moduleNameString m),
-                rqName = moduleNameString m
+                rqName = moduleNameString m,
+                rqSuffix = filter (/= '.') (moduleNameString m)
               }
         pure (m, mkModuleName alias)
 

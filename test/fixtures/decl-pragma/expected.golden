@@ -2,11 +2,11 @@
 -- with its binding instead of being lifted into the bundle's header.
 {-# INLINE solve #-}
 solve :: Int -> Int
-solve = incAlg
+solve = incA
 
 main :: IO ()
 main = print (solve 1)
 
 -- ### Alg
-incAlg :: Int -> Int
-incAlg = (+ 1)
+incA :: Int -> Int
+incA = (+ 1)

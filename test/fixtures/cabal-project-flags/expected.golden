@@ -5,8 +5,8 @@ module Main
   ) where
 
 main :: IO ()
-main = print debugMac
+main = print debugM
 
 -- ### Mac
-debugMac :: Bool
-debugMac = True
+debugM :: Bool
+debugM = True

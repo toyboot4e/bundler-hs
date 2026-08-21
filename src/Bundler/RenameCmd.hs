@@ -18,18 +18,22 @@ import System.Process.Typed
 -- | One query to the user's rename command. Wire format is one
 -- tab-separated line per query, one line (the new name) per response:
 --
--- > kind \t module \t default-suffix \t name
+-- > kind \t module \t name \t default-suffix
 --
--- Kinds: @value@, @type@, @con@, @field@, @op@, @extmod@. All fields are
--- non-empty: for @extmod@ the name is the module itself and the response is
--- the qualifier to use for it; for the rest the response is the new name.
--- A script reproduces the default behavior with @echo "$name$suffix"@
--- (and @echo "$name"@ for @op@/@extmod@).
+-- Kinds: @value@, @type@, @con@, @field@, @op@, @extmod@. For @extmod@ the
+-- name is the module itself and the response is the qualifier to use for
+-- it; for the rest the response is the new name. A script reproduces the
+-- default behavior with @echo "$name$suffix"@ (and @echo "$name"@ for
+-- @op@/@extmod@).
+--
+-- The suffix comes last because it is the one field that can be empty, for
+-- a name the default rule leaves as it is, and a trailing empty field is
+-- what a tab-splitting reader handles without losing the fields before it.
 data RenameQuery = RenameQuery
   { rqKind :: String,
     rqModule :: String,
-    rqSuffix :: String,
-    rqName :: String
+    rqName :: String,
+    rqSuffix :: String
   }
 
 data Renamer = Renamer
@@ -53,7 +57,7 @@ queryRenamer r q = do
   result <- try $ do
     hPutStrLn
       (getStdin (rProcess r))
-      (intercalate "\t" [rqKind q, rqModule q, rqSuffix q, rqName q])
+      (intercalate "\t" [rqKind q, rqModule q, rqName q, rqSuffix q])
     hGetLine (getStdout (rProcess r))
   pure $ case result of
     Left (e :: IOException) ->

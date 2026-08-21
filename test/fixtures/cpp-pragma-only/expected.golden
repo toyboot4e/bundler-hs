@@ -5,8 +5,8 @@ module Main
   ) where
 
 main :: IO ()
-main = print (answerPlain + 1)
+main = print (answerP + 1)
 
 -- ### Plain
-answerPlain :: Int
-answerPlain = 41
+answerP :: Int
+answerP = 41

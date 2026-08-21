@@ -11,13 +11,13 @@ import qualified Data.Ord
 
 main :: IO ()
 main = do
-  print (countUpCountA [1, 2, 2, 3])
-  print (rankedCountB [3, 1, 2])
+  print (countUpCA [1, 2, 2, 3])
+  print (rankedCB [3, 1, 2])
   print (MyMap.singleton (1 :: Int) "user alias survives")
 
 -- ### CountB
-rankedCountB :: [Int] -> [(Int, String)]
-rankedCountB xs =
+rankedCB :: [Int] -> [(Int, String)]
+rankedCB xs =
   [ (k, map toUpper v)
   | (k, v) <-
       Data.Map.Strict.toList
@@ -26,5 +26,5 @@ rankedCountB xs =
   ]
 
 -- ### CountA
-countUpCountA :: [Int] -> [(Int, Int)]
-countUpCountA xs = Data.Map.Strict.toList (Data.Map.Strict.fromListWith (+) [(x, 1) | x <- xs])
+countUpCA :: [Int] -> [(Int, Int)]
+countUpCA xs = Data.Map.Strict.toList (Data.Map.Strict.fromListWith (+) [(x, 1) | x <- xs])

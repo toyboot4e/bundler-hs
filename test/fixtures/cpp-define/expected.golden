@@ -12,9 +12,9 @@ module Main
 main :: IO ()
 main = do
   n <- readLn :: IO Int
-  DBG (incAlg n)
-  print (incAlg n)
+  DBG (incA n)
+  print (incA n)
 
 -- ### Alg
-incAlg :: Int -> Int
-incAlg = (+ 1)
+incA :: Int -> Int
+incA = (+ 1)

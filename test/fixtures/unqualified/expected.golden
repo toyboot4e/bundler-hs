@@ -4,30 +4,30 @@ module Main
 
 main :: IO ()
 main = do
-  print (incUtil 41)
-  print (clampUtil 0 10 99)
-  print (twiceExtra 21)
-  let p = MkPairUtil {leftUtil = 1, rightUtil = 2}
-  print (leftUtil p + rightUtil p)
+  print (inc 41)
+  print (clamp 0 10 99)
+  print (twice 21)
+  let p = MkPair {left = 1, right = 2}
+  print (left p + right p)
 
 -- ### Util
-data PairUtil = MkPairUtil
-  { leftUtil :: Int
-  , rightUtil :: Int
+data Pair = MkPair
+  { left :: Int
+  , right :: Int
   }
 
-incUtil :: Int -> Int
-incUtil = (+ 1)
+inc :: Int -> Int
+inc = (+ 1)
 
-clampUtil :: Int -> Int -> Int -> Int
-clampUtil lo hi = max lo . min hi
+clamp :: Int -> Int -> Int -> Int
+clamp lo hi = max lo . min hi
 
-privateUtil :: Int
-privateUtil = 0
+private :: Int
+private = 0
 
 -- ### Extra
-twiceExtra :: Int -> Int
-twiceExtra x = x * 2
+twice :: Int -> Int
+twice x = x * 2
 
-unusedExtra :: Int
-unusedExtra = 99
+unused :: Int
+unused = 99

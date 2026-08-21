@@ -5,12 +5,12 @@ module Main
   ) where
 
 main :: IO ()
-main = print answerIffy
+main = print answerI
 
 -- ### Iffy
-answerIffy :: Int
+answerI :: Int
 #ifdef WIN32
-answerIffy = 1
+answerI = 1
 #else
-answerIffy = 2
+answerI = 2
 #endif

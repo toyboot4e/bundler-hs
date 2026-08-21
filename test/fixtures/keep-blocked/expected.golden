@@ -1,0 +1,37 @@
+module Main
+  ( main
+  ) where
+
+import Data.List (sort)
+import Prelude
+
+collide :: Int
+collide = 7
+
+main :: IO ()
+main = do
+  print (sort [2, 1 :: Int], collide)
+  print (kept 1, other 2)
+
+-- ### Rival
+sharedR :: Int -> Int
+sharedR = negate
+
+other :: Int -> Int
+other = sharedR
+
+-- ### Blocked
+lookupB :: Int -> Int
+lookupB = id
+
+sortB :: Int -> Int
+sortB = id
+
+collideB :: Int -> Int
+collideB = id
+
+sharedB :: Int -> Int
+sharedB = id
+
+kept :: Int -> Int
+kept n = lookupB n + sortB n + collideB n + sharedB n

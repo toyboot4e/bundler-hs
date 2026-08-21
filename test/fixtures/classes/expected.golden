@@ -18,7 +18,7 @@ newtype Tag =
   Tag Int
 
 instance Show Tag where
-  show (Tag n) = "#" <> displayDecoy n
+  show (Tag n) = "#" <> display n
 
 main :: IO ()
 main = do
@@ -36,8 +36,8 @@ instance PrettyP Int where
   prettyP = show
 
 -- ### Decoy
-displayDecoy :: Int -> String
-displayDecoy n = "<" <> Prelude.show n <> ">"
+display :: Int -> String
+display n = "<" <> Prelude.show n <> ">"
 
-showDecoy :: Int -> String
-showDecoy = displayDecoy
+showD :: Int -> String
+showD = display

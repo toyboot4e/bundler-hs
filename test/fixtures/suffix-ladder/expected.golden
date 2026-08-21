@@ -1,0 +1,20 @@
+module Main
+  ( main
+  ) where
+
+-- The user's own names are untouchable, so they knock out the short rungs
+-- of the suffix ladder one by one: S, then Stack, leaving DataStack.
+pushS :: Int
+pushS = 0
+
+pushStack :: Int
+pushStack = 1
+
+main :: IO ()
+main = do
+  print (pushS, pushStack)
+  print (pushDataStack 1 [])
+
+-- ### Data.Stack
+pushDataStack :: Int -> [Int] -> [Int]
+pushDataStack = (:)

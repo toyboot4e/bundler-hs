@@ -5,12 +5,12 @@ module Main
   ) where
 
 main :: IO ()
-main = print valueFlagged
+main = print valueF
 
 -- ### Flagged
-valueFlagged :: Int
+valueF :: Int
 #ifdef SPECIAL
-valueFlagged = 1
+valueF = 1
 #else
-valueFlagged = 2
+valueF = 2
 #endif

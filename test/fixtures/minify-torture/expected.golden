@@ -3,13 +3,13 @@ module Main ( main ) where
 
 main :: IO ()
 main = do
-  print (readIntTorture "41")
-  print (sumStrictTorture [1, 2, 3])
+  print (readInt "41")
+  print (sumStrict [1, 2, 3])
   print (True --> False)
-  print (classifyTorture (-1))
-  print (lazySndTorture (1, 2))
+  print (classify (-1))
+  print (lazySnd (1, 2))
   case [5 :: Int] of
-    SingleTorture x -> print (x, SingleTorture x)
+    Single x -> print (x, Single x)
     _ -> pure ()
 
-pattern SingleTorture :: a -> [a] ; pattern SingleTorture x <- [x] where { SingleTorture x = [x] } ; data AccTorture = AccTorture { getAccTorture :: !Int } ; (-->) :: Bool -> Bool -> Bool ; True --> b = b ; False --> _ = True ; infixr 1 --> ; readIntTorture :: String -> Int ; readIntTorture = read @Int ; sumStrictTorture :: [Int] -> Int ; sumStrictTorture = go (AccTorture 0) where { go (AccTorture !acc) [] = acc ; go (AccTorture !acc) (x:xs) = go (AccTorture (acc + x)) xs } ; classifyTorture :: Int -> String ; classifyTorture (1) = "neg one" ; classifyTorture 0 = "zero" ; classifyTorture _ = "other" ; lazySndTorture :: (Int, Int) -> Int ; lazySndTorture ~(_, b) = b
+pattern Single :: a -> [a] ; pattern Single x <- [x] where { Single x = [x] } ; data Acc = Acc { getAcc :: !Int } ; (-->) :: Bool -> Bool -> Bool ; True --> b = b ; False --> _ = True ; infixr 1 --> ; readInt :: String -> Int ; readInt = read @Int ; sumStrict :: [Int] -> Int ; sumStrict = go (Acc 0) where { go (Acc !acc) [] = acc ; go (Acc !acc) (x:xs) = go (Acc (acc + x)) xs } ; classify :: Int -> String ; classify (1) = "neg one" ; classify 0 = "zero" ; classify _ = "other" ; lazySnd :: (Int, Int) -> Int ; lazySnd ~(_, b) = b

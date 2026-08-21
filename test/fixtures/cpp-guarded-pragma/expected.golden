@@ -6,8 +6,8 @@ module Main
   ) where
 
 main :: IO ()
-main = print (pairUpGuarded 0)
+main = print (pairUpG 0)
 
 -- ### Guarded
-pairUpGuarded :: Int -> (Int, Int)
-pairUpGuarded = (, 1)
+pairUpG :: Int -> (Int, Int)
+pairUpG = (, 1)

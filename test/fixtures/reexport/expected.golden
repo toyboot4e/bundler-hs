@@ -4,22 +4,22 @@ module Main
 
 main :: IO ()
 main = do
-  print (shrinkExtra 1)
+  print (shrink 1)
   -- reaches Main through Bulk -> Extra -> Core
-  print (growCore 2)
+  print (grow 2)
   -- in scope from both Core and Bulk: same origin, not ambiguous
-  print (flattenCore 3)
+  print (flatten 3)
   -- qualified access through two levels of re-export
-  print (growCore 4)
+  print (grow 4)
 
 -- ### Core
-flattenCore :: Int -> Int
-flattenCore = subtract 1
+flatten :: Int -> Int
+flatten = subtract 1
 
-growCore :: Int -> Int
-growCore x = x + 1
+grow :: Int -> Int
+grow x = x + 1
 
 -- ### Extra
-shrinkExtra :: Int -> Int
-shrinkExtra x = flattenCore (growCore x) - 1
+shrink :: Int -> Int
+shrink x = flatten (grow x) - 1
 -- ### Bulk

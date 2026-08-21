@@ -5,12 +5,12 @@ module Main
   ) where
 
 main :: IO ()
-main = print specVer
+main = print specV
 
 -- ### Ver
-specVer :: String
+specV :: String
 #if __GLASGOW_HASKELL__ >= 900
-specVer = "modern"
+specV = "modern"
 #else
-specVer = "ancient"
+specV = "ancient"
 #endif

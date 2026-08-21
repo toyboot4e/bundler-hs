@@ -7,11 +7,11 @@ main = do
   let h = pushA 1 emptyHeapA
   print (fA h)
   print (sizeA h)
-  print (fBeta 41)
+  print (fB 41)
 
 -- ### Beta
-fBeta :: Int -> Int
-fBeta = succ
+fB :: Int -> Int
+fB = succ
 
 -- ### Alpha
 data HeapA = HeapA

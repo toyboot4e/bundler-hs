@@ -7,12 +7,12 @@ module Main
 import qualified Data.List
 
 main :: IO ()
-main = print vCondImp
+main = print vCI
 
 -- ### CondImp
-vCondImp :: [Int]
+vCI :: [Int]
 #ifdef USE_SORT
-vCondImp = Data.List.sort [3, 1, 2]
+vCI = Data.List.sort [3, 1, 2]
 #else
-vCondImp = [3, 1, 2]
+vCI = [3, 1, 2]
 #endif
