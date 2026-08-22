@@ -72,8 +72,8 @@ data FormatMode
 data MinifyOptions = MinifyOptions
   { -- | Expanded library code: one layout-free line per declaration.
     moLib :: Bool,
-    -- | The user's own declarations.
-    moUser :: Bool,
+    -- | Your own file's declarations.
+    moApp :: Bool,
     -- | The import section.
     moImports :: Bool,
     -- | Combine all LANGUAGE pragmas into a single line.
@@ -102,7 +102,7 @@ noMinify :: MinifyOptions
 noMinify = MinifyOptions False False False False
 
 anyMinify :: MinifyOptions -> Bool
-anyMinify o = moLib o || moUser o || moImports o || moPragmas o
+anyMinify o = moLib o || moApp o || moImports o || moPragmas o
 
 configParser :: Parser Config
 configParser =
@@ -180,15 +180,15 @@ minifyOptions =
   combine
     <$> switch
       ( long "minify"
-          <> help "Minify everything except your own code (shorthand)"
+          <> help "Minify everything except your own file (shorthand)"
       )
     <*> switch
       ( long "minify-lib"
           <> help "Minify the expanded library code into one layout-free line (comments dropped)"
       )
     <*> switch
-      ( long "minify-user-code"
-          <> help "Minify your own declarations too"
+      ( long "minify-app"
+          <> help "Minify your own file's declarations too"
       )
     <*> switch
       ( long "minify-import"
@@ -199,9 +199,9 @@ minifyOptions =
           <> help "Combine all LANGUAGE pragmas into a single {-# LANGUAGE A, B, ... #-} line"
       )
   where
-    combine everything lib user imports pragmas
-      | everything = MinifyOptions True user True True
-      | otherwise = MinifyOptions lib user imports pragmas
+    combine everything lib app imports pragmas
+      | everything = MinifyOptions True app True True
+      | otherwise = MinifyOptions lib app imports pragmas
 
 treeShakeOptions :: Parser TreeShakeOptions
 treeShakeOptions =

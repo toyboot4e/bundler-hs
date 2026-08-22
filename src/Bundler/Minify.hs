@@ -62,7 +62,7 @@ data Section = InUser | InLib
 minifyWith :: MinifyOptions -> String -> IO (Either BundleError String)
 minifyWith opts src
   -- Only pragma combining requested: purely textual.
-  | not (moLib opts || moUser opts || moImports opts) =
+  | not (moLib opts || moApp opts || moImports opts) =
       pure (Right (unlines (combineLangPragmas pragmaBlock) <> unlines afterPragmas))
   | otherwise = do
       parsedFlags <- parsePragmasIntoDynFlags baseDynFlags ([], []) "<minify>" stripped
@@ -161,7 +161,7 @@ minifyWith opts src
         minified (startLine, _) isImport
           | isImport = moImports opts
           | otherwise = case sectionAt startLine of
-              InUser -> moUser opts
+              InUser -> moApp opts
               InLib -> moLib opts
 
         firstContentLine = case (items, directives) of
@@ -192,7 +192,7 @@ minifyWith opts src
         lineMinified n
           | n <= lastImportEnd = moImports opts
           | otherwise = case sectionAt n of
-              InUser -> moUser opts
+              InUser -> moApp opts
               InLib -> moLib opts
 
         headerEndLine =

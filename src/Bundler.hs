@@ -192,7 +192,7 @@ bundle cfg = runExceptT $ do
   checked <- ExceptT (selfCheck cliDefines out)
   let mopts = cfgMinify cfg
       -- Pre-formatting only matters for sections that stay verbatim.
-      allCodeMinified = moLib mopts && moUser mopts && moImports mopts
+      allCodeMinified = moLib mopts && moApp mopts && moImports mopts
       formatStage = case cfgFormat cfg of
         _ | allCodeMinified -> pure checked
         FormatNone -> pure checked
