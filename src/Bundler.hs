@@ -188,17 +188,7 @@ bundle cfg = runExceptT $ do
   -- hiding list bolted on: that list is the answer, not the problem.
   case keptImports of
     [] -> pure ()
-    kept ->
-      liftIO . hPutStrLn stderr $
-        "note: kept library imports whose names cannot be attributed:\n"
-          <> unlines
-            [ "  " <> line <> (if hidable then "" else "     [cannot hide]")
-            | (line, hidable) <- kept
-            ]
-          <> "these are in scope for the whole bundle. Names the bundle keeps spelled\n"
-          <> "as written are hidden from them, except from the ones marked\n"
-          <> "[cannot hide], which list their own names, and except for data\n"
-          <> "constructors, which an import list cannot name on its own"
+    kept -> liftIO (hPutStrLn stderr (keptImportsNote kept))
   checked <- ExceptT (selfCheck cliDefines out)
   let mopts = cfgMinify cfg
       -- Pre-formatting only matters for sections that stay verbatim.
@@ -379,6 +369,26 @@ hiddenFromOpenImports plan userSyms written =
     item name
       | isOperatorString name = "(" <> name <> ")"
       | otherwise = name
+
+-- | What to say about the library imports that end up in the bundle
+-- verbatim, because the bundler cannot tell which names they bring in.
+--
+-- They are in scope for all of the merged module rather than the one file
+-- that asked for them, so each line says whether the bundle's own names
+-- could be hidden from it.
+keptImportsNote :: [(String, Bool)] -> String
+keptImportsNote kept =
+  intercalate "\n" $
+    "note: these library imports are in scope for the whole bundle:"
+      : [ "  " <> pad line <> status hidable
+        | (line, hidable) <- kept
+        ]
+  where
+    -- Aligned, but never pushed off the screen by one long import.
+    width = minimum [60, maximum (map (length . fst) kept)]
+    pad line = line <> replicate (width - length line) ' '
+    status True = "  (bundle names hidden from it)"
+    status False = "  (may be ambiguous)"
 
 -- | Can this import be given a hiding list at all? Only one that has no
 -- list of its own, or already hides. An import list that names what it
