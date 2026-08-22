@@ -147,7 +147,7 @@ The output is formatted with [hindent](https://github.com/mihaimaruseac/hindent)
 
 Other known limitations:
 
-- An **open import** (`import Data.List`) is handled by hiding every unrenamed top-level name from it, which works for values, types and classes but not for data constructors: an import list cannot name one on its own. A kept constructor that an open import also exports (`Down`, say) is still ambiguous. Rename it with `--rename-cmd`, or give that import an explicit list.
+- An **open import** (`import Data.List`) is handled by hiding every unrenamed top-level name from it. That covers values, types and classes, but not data constructors, because an import list cannot name one on its own. A kept constructor that an open import also exports (`Down`, say) is still ambiguous. The same goes for a name arriving through a `T(..)` item of an import the bundler keeps as written, such as `import Control.Monad.IO.Class (MonadIO(..))`, whose children are unknowable and which cannot take a hiding list either. Move the name out of the way with `--rename-cmd`.
 - **Formatting is not preserved.**
 - **Library comments are not preserved.** Their CPP directives are, but their comments are not.
 - A library module that uses `#define`, `#undef`, or `#include` has all of its conditionals resolved at bundle time, not just the ones that need it. There is no `-U` to undefine a macro for that pass.

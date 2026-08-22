@@ -144,7 +144,7 @@ bundle cfg = runExceptT $ do
   let hidden = hiddenFromOpenImports plan (shakenSyms (lsUser live) userSyms) written
       keptOpen =
         nubOrd
-          [ withHiding hidden (renderImport imp)
+          [ withHiding (if hidableImport (unLoc imp) then hidden else []) (renderImport imp)
           | (_, _, _, e) <- liveLocals,
             imp <- reOpenExtImports e
           ]
@@ -371,6 +371,17 @@ hiddenFromOpenImports plan userSyms written =
       | isOperatorString name = "(" <> name <> ")"
       | otherwise = name
 
+-- | Can this import be given a hiding list at all? Only one that has no
+-- list of its own, or already hides. An import list that names what it
+-- brings in cannot also hide, and a kept library import may well have one:
+-- @import Control.Monad.IO.Class (MonadIO(..))@ is kept as written because
+-- the children of @MonadIO(..)@ are unknowable, not because it is open.
+hidableImport :: GHC.Hs.ImportDecl GHC.Hs.GhcPs -> Bool
+hidableImport imp = case GHC.Hs.ideclImportList imp of
+  Nothing -> True
+  Just (GHC.Hs.EverythingBut, _) -> True
+  _ -> False
+
 -- | Add names to an import's hiding list, opening one if it has none. The
 -- rendered import is normalized to a single line first, so that the closing
 -- parenthesis of an existing list is where this expects it.
@@ -571,14 +582,8 @@ assemble embedPos minifyOpts userDefaults libDefaults userFile localNames hidden
       | imp <- hsmodImports (unLoc (pfModule userFile)),
         unLoc (ideclName (unLoc imp)) `Set.notMember` localNames
       ]
-    -- An import that puts names in unqualified scope without saying which
-    -- ones: no list at all, or a hiding list.
     openExternal imp =
-      GHC.Hs.ideclQualified imp == GHC.Hs.NotQualified
-        && case GHC.Hs.ideclImportList imp of
-          Nothing -> True
-          Just (GHC.Hs.EverythingBut, _) -> True
-          _ -> False
+      GHC.Hs.ideclQualified imp == GHC.Hs.NotQualified && hidableImport imp
     imports = nubOrd (userImports <> extImportLines)
 
     -- Minifying the library section collapses each run of consecutive
