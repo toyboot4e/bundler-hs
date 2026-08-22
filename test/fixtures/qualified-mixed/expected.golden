@@ -1,0 +1,25 @@
+module Main
+  ( main
+  ) where
+
+-- Three shapes at once. Util is imported both ways in one file and the
+-- qualified half settles it. Helper is only ever imported plainly here,
+-- but Caller names it qualified, which settles it too. Caller itself is
+-- only ever imported plainly, so `call` keeps its name.
+main :: IO ()
+main = print (incU 1 + decU 2 + twiceH 3 + call 4)
+
+-- ### Util
+incU :: Int -> Int
+incU = (+ 1)
+
+decU :: Int -> Int
+decU = subtract 1
+
+-- ### Helper
+twiceH :: Int -> Int
+twiceH = (* 2)
+
+-- ### Caller
+call :: Int -> Int
+call = twiceH
