@@ -142,12 +142,14 @@ bundle cfg = runExceptT $ do
   -- because a name is only kept when nothing in the bundle writes it with
   -- an external meaning.
   let hidden = hiddenFromOpenImports plan (shakenSyms (lsUser live) userSyms) written
-      keptOpen =
+      keptImports =
         nubOrd
-          [ withHiding (if hidableImport (unLoc imp) then hidden else []) (renderImport imp)
+          [ (renderImport imp, hidableImport (unLoc imp))
           | (_, _, _, e) <- liveLocals,
             imp <- reOpenExtImports e
           ]
+      keptOpen =
+        [withHiding (if hidable then hidden else []) line | (line, hidable) <- keptImports]
       -- An explicit import of Prelude - qualified or not - cancels the
       -- implicit one for the whole merged module. When a library's rewritten
       -- references force a canonical Prelude import and the user's file has
@@ -182,14 +184,21 @@ bundle cfg = runExceptT $ do
           userDirectives
           renamedUser
           renamedLocals
-  case keptOpen of
+  -- The note shows the imports as the library wrote them, not with the
+  -- hiding list bolted on: that list is the answer, not the problem.
+  case keptImports of
     [] -> pure ()
     kept ->
       liftIO . hPutStrLn stderr $
         "note: kept library imports whose names cannot be attributed:\n"
-          <> unlines (map ("  " <>) kept)
-          <> "every name the bundle keeps spelled as written is hidden from them,\n"
-          <> "but a data constructor cannot be hidden and may still be ambiguous"
+          <> unlines
+            [ "  " <> line <> (if hidable then "" else "     [cannot hide]")
+            | (line, hidable) <- kept
+            ]
+          <> "these are in scope for the whole bundle. Names the bundle keeps spelled\n"
+          <> "as written are hidden from them, except from the ones marked\n"
+          <> "[cannot hide], which list their own names, and except for data\n"
+          <> "constructors, which an import list cannot name on its own"
   checked <- ExceptT (selfCheck cliDefines out)
   let mopts = cfgMinify cfg
       -- Pre-formatting only matters for sections that stay verbatim.
