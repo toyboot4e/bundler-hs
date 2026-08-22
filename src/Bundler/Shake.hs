@@ -87,10 +87,14 @@ data WrittenNames = WrittenNames
     -- | Written, qualified or not, and provided by a local module. After
     -- renaming these are all unqualified, so these are the occurrences an
     -- external import could make ambiguous.
-    wnLocal :: Set OccKey
+    wnLocal :: Set OccKey,
+    -- | Local modules a name is written /qualified/ into, following
+    -- re-exports to whoever defines it. Writing @M.f@ chooses to say which
+    -- module the name belongs to, and the bundle keeps saying it.
+    wnQualified :: Set ModuleName
   }
 
--- | Both halves in one traversal.
+-- | All three in one traversal.
 --
 -- Binders count as written names, which only ever makes the answer more
 -- cautious: a name kept unrenamed less often, or hidden from an import that
@@ -101,7 +105,10 @@ writtenNames inputs =
     { wnExternal =
         Set.fromList [key | (unqual, key, origins) <- written, unqual, null origins],
       wnLocal =
-        Set.fromList [key | (_, _, origins) <- written, (_, key) <- origins]
+        Set.fromList [key | (_, _, origins) <- written, (_, key) <- origins],
+      wnQualified =
+        Set.fromList
+          [m | (unqual, _, origins) <- written, not unqual, (Just m, _) <- origins]
     }
   where
     symsOf = symsOfInputs inputs

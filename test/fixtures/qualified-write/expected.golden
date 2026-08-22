@@ -1,0 +1,13 @@
+module Main
+  ( main
+  ) where
+
+main :: IO ()
+main = print (pushD 1 (popD [2, 3]))
+
+-- ### Deque
+pushD :: Int -> [Int] -> [Int]
+pushD = (:)
+
+popD :: [Int] -> [Int]
+popD = drop 1

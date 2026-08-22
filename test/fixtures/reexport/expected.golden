@@ -6,19 +6,19 @@ main :: IO ()
 main = do
   print (shrink 1)
   -- reaches Main through Bulk -> Extra -> Core
-  print (grow 2)
+  print (growC 2)
   -- in scope from both Core and Bulk: same origin, not ambiguous
-  print (flatten 3)
+  print (flattenC 3)
   -- qualified access through two levels of re-export
-  print (grow 4)
+  print (growC 4)
 
 -- ### Core
-flatten :: Int -> Int
-flatten = subtract 1
+flattenC :: Int -> Int
+flattenC = subtract 1
 
-grow :: Int -> Int
-grow x = x + 1
+growC :: Int -> Int
+growC x = x + 1
 
 -- ### Extra
 shrink :: Int -> Int
-shrink x = flatten (grow x) - 1
+shrink x = flattenC (growC x) - 1

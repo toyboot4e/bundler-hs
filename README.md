@@ -28,7 +28,7 @@ See `bundler-hs --help` for the full list of options.
 
 Local library modules are merged into one flat namespace, and names are renamed only as far as that takes. Each file is parsed with its own imports in scope, and the bundle merges the external imports of every file.
 
-A name keeps its original spelling when nothing in the bundle competes for it. That takes two things. No file may import its module `qualified`, because an unqualified import means the name is already written the way it is defined. And nothing else may claim the name: not another library module, not your own top level, not Prelude, not one of your import lists, and not a name the bundle writes that only an external import can be providing.
+A name keeps its original spelling when nothing in the bundle competes for it. That takes two things. Nothing may name its module, meaning no `qualified` import of it and no `M.f` written into it. Naming a module says where a name comes from, and the bundle goes on saying it, so `import qualified Deque as D` renames the whole module and so does a single `Deque.push` written under a plain `import Deque` (or reached through a re-export module). And nothing else may claim the name: not another library module, not your own top level, not Prelude, not one of your import lists, and not a name the bundle writes that only an external import can be providing.
 
 ```haskell
 import Deque   -- push  ->  push

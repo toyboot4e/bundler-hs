@@ -52,12 +52,15 @@ mkRenamePlan ::
   -- | The user file's own symbols (unrenamed, but they occupy names).
   ModuleSymbols ->
   -- | Names the bundle takes from external imports
-  -- ('Bundler.Shake.externalNames').
+  -- ('Bundler.Shake.wnExternal').
   Set OccKey ->
+  -- | Local modules the bundle writes a qualified name into
+  -- ('Bundler.Shake.wnQualified').
+  Set ModuleName ->
   [(LocalModule, ModuleSymbols)] ->
   IO (Either BundleError RenamePlan)
-mkRenamePlan mrenamer userFile userSyms external locals = runExceptT $ do
-  perModule <- traverse planFor (defaultNames userFile userSyms external locals)
+mkRenamePlan mrenamer userFile userSyms external qualifiedUses locals = runExceptT $ do
+  perModule <- traverse planFor (defaultNames userFile userSyms external qualifiedUses locals)
   let plan = RenamePlan (Map.fromList perModule)
   ExceptT (pure (validatePlan userSyms perModule))
   pure plan
@@ -106,9 +109,10 @@ defaultNames ::
   ParsedFile ->
   ModuleSymbols ->
   Set OccKey ->
+  Set ModuleName ->
   [(LocalModule, ModuleSymbols)] ->
   [(LocalModule, ModuleSymbols, Map OccKey String)]
-defaultNames userFile userSyms external locals = go claimed0 locals
+defaultNames userFile userSyms external qualifiedUses locals = go claimed0 locals
   where
     go _ [] = []
     go claimed ((lm, syms) : rest) =
@@ -156,19 +160,24 @@ defaultNames userFile userSyms external locals = go claimed0 locals
 
     kept = keptNames occupied qualifiedModules locals
     localNames = Set.fromList (map (lmName . fst) locals)
+    -- Naming a module, by importing it qualified or by writing one of its
+    -- names as @M.f@, is a choice the bundle keeps: those names are always
+    -- renamed. A qualified write counts even when it goes through a
+    -- re-export module, because it lands on the module that defines it.
     qualifiedModules =
-      Set.fromList
-        [ unLoc (ideclName imp)
-        | pf <- userFile : map (lmParsed . fst) locals,
-          imp <- map unLoc (hsmodImports (unLoc (pfModule pf))),
-          ideclQualified imp /= NotQualified
-        ]
+      qualifiedUses
+        <> Set.fromList
+          [ unLoc (ideclName imp)
+          | pf <- userFile : map (lmParsed . fst) locals,
+            imp <- map unLoc (hsmodImports (unLoc (pfModule pf))),
+            ideclQualified imp /= NotQualified
+          ]
 
 -- | The names that keep their original spelling in the bundle.
 --
--- A module qualifies when nothing in the bundle imports it @qualified@: its
--- names are only ever written the way they were defined, so a suffix buys
--- nothing. Within those modules a name survives unrenamed when exactly one
+-- A module qualifies when nothing in the bundle names it: no @qualified@
+-- import of it and no @M.f@ written into it. Its names are then only ever
+-- written the way they were defined, so a suffix buys nothing. Within those modules a name survives unrenamed when exactly one
 -- of them defines it and it is not already taken (the user's own names,
 -- Prelude, the user's import lists, or anything the bundle takes from an
 -- external import).

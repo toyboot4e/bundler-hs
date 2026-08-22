@@ -93,6 +93,7 @@ bundle cfg = runExceptT $ do
           userFile
           (shakenSyms (lsUser live) userSyms)
           (wnExternal written)
+          (wnQualified written)
           [(lm, shakenSyms (liveLocal live (lmName lm)) syms) | (lm, syms) <- withSyms]
       )
   libEnvs0 <-
