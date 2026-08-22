@@ -28,10 +28,16 @@ See `bundler-hs --help` for the full list of options.
 
 Local library modules are merged into one flat namespace, and names are renamed only as far as that takes. Each file is parsed with its own imports in scope, and the bundle merges the external imports of every file.
 
-A name keeps its original spelling when nothing in the bundle competes for it. That takes two things. No file may import its module `qualified`, because an unqualified import means the name is already written the way it is defined. And nothing else may claim the name: not another library module, not your own top level, not Prelude, not your own import lists.
+A name keeps its original spelling when nothing in the bundle competes for it. That takes two things. No file may import its module `qualified`, because an unqualified import means the name is already written the way it is defined. And nothing else may claim the name: not another library module, not your own top level, not Prelude, not one of your import lists, and not a name the bundle writes that only an external import can be providing.
 
 ```haskell
 import Deque   -- push  ->  push
+```
+
+That last one is how an open import gets a say. `import Control.Monad.State.Class` does not list what it brings in, but a bundle that writes `modify` without any local module defining it has to be getting it from there, so a library's own `modify` moves aside. And because a kept name is never one the bundle writes with an external meaning, every kept name is also hidden from the open imports the bundle carries, which settles the ones nothing happens to write:
+
+```haskell
+import Data.List hiding (partition)   -- `partition` here is the library's
 ```
 
 Every other name takes its module's suffix, and the shortest suffix that keeps the bundle collision-free wins:
@@ -141,7 +147,7 @@ The output is formatted with [hindent](https://github.com/mihaimaruseac/hindent)
 
 Other known limitations:
 
-- A name that keeps its original spelling is checked against Prelude and against the names your own explicit import lists bring in. An **open import** (`import Data.List`) does not say what it brings in, so a library name colliding with one of its exports makes the bundle ambiguous. Give that import an explicit list, or move the name out of the way with `--rename-cmd`.
+- An **open import** (`import Data.List`) is handled by hiding every unrenamed top-level name from it, which works for values, types and classes but not for data constructors: an import list cannot name one on its own. A kept constructor that an open import also exports (`Down`, say) is still ambiguous. Rename it with `--rename-cmd`, or give that import an explicit list.
 - **Formatting is not preserved.**
 - **Library comments are not preserved.** Their CPP directives are, but their comments are not.
 - A library module that uses `#define`, `#undef`, or `#include` has all of its conditionals resolved at bundle time, not just the ones that need it. There is no `-U` to undefine a macro for that pass.

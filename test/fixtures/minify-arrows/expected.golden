@@ -1,6 +1,6 @@
 {-# LANGUAGE Arrows #-}
 module Main ( main ) where
-import qualified Control.Arrow ; import Control.Arrow
+import qualified Control.Arrow ; import Control.Arrow hiding (main)
 
 main :: IO ()
 main = print (pipelineA 20)

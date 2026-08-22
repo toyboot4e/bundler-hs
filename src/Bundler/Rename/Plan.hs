@@ -51,10 +51,13 @@ mkRenamePlan ::
   ParsedFile ->
   -- | The user file's own symbols (unrenamed, but they occupy names).
   ModuleSymbols ->
+  -- | Names the bundle takes from external imports
+  -- ('Bundler.Shake.externalNames').
+  Set OccKey ->
   [(LocalModule, ModuleSymbols)] ->
   IO (Either BundleError RenamePlan)
-mkRenamePlan mrenamer userFile userSyms locals = runExceptT $ do
-  perModule <- traverse planFor (defaultNames userFile userSyms locals)
+mkRenamePlan mrenamer userFile userSyms external locals = runExceptT $ do
+  perModule <- traverse planFor (defaultNames userFile userSyms external locals)
   let plan = RenamePlan (Map.fromList perModule)
   ExceptT (pure (validatePlan userSyms perModule))
   pure plan
@@ -102,9 +105,10 @@ mkRenamePlan mrenamer userFile userSyms locals = runExceptT $ do
 defaultNames ::
   ParsedFile ->
   ModuleSymbols ->
+  Set OccKey ->
   [(LocalModule, ModuleSymbols)] ->
   [(LocalModule, ModuleSymbols, Map OccKey String)]
-defaultNames userFile userSyms locals = go claimed0 locals
+defaultNames userFile userSyms external locals = go claimed0 locals
   where
     go _ [] = []
     go claimed ((lm, syms) : rest) =
@@ -132,11 +136,13 @@ defaultNames userFile userSyms locals = go claimed0 locals
     claims names = Set.fromList [(ns, new) | ((ns, _), new) <- Map.toList names]
 
     -- Names nothing in the bundle can move out of the way: the user's own
-    -- top level, what the implicit Prelude provides, and the names the
-    -- user's own unqualified imports of external modules bring in.
+    -- top level, what the implicit Prelude provides, the names the user's
+    -- own unqualified imports of external modules bring in, and every name
+    -- the bundle writes that only an external import can be providing.
     occupied =
       Map.keysSet (msAll userSyms)
         <> preludeNames
+        <> external
         <> externalImportNames localNames userFile
 
     -- Operators keep their names wherever they are defined, and kept names
@@ -164,7 +170,8 @@ defaultNames userFile userSyms locals = go claimed0 locals
 -- names are only ever written the way they were defined, so a suffix buys
 -- nothing. Within those modules a name survives unrenamed when exactly one
 -- of them defines it and it is not already taken (the user's own names,
--- Prelude, the user's import lists).
+-- Prelude, the user's import lists, or anything the bundle takes from an
+-- external import).
 keptNames ::
   Set OccKey ->
   Set ModuleName ->

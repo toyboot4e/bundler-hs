@@ -16,7 +16,10 @@ module Bundler.Shake
     LiveFile (..),
     LiveSet (..),
     ShakeInput (..),
+    WrittenNames (..),
+    writtenNames,
     keepEverything,
+    liveFile,
     liveLocal,
     shake,
     userRoots,
@@ -70,6 +73,57 @@ data ShakeInput = ShakeInput
     siEnv :: ResolveEnv
   }
 
+-- | Where the names the bundle actually writes come from.
+--
+-- This is what an open @import Data.List@ hides from the bundler: its export
+-- list is unknowable, but a name the bundle writes and no local module
+-- provides has to be one of its exports. Written names are the whole story
+-- for ambiguity, because an ambiguous name is an error where it occurs, not
+-- where it is defined.
+data WrittenNames = WrittenNames
+  { -- | Written unqualified with no local module providing it, so an
+    -- external import is. No local name may keep this spelling.
+    wnExternal :: Set OccKey,
+    -- | Written, qualified or not, and provided by a local module. After
+    -- renaming these are all unqualified, so these are the occurrences an
+    -- external import could make ambiguous.
+    wnLocal :: Set OccKey
+  }
+
+-- | Both halves in one traversal.
+--
+-- Binders count as written names, which only ever makes the answer more
+-- cautious: a name kept unrenamed less often, or hidden from an import that
+-- never exported it.
+writtenNames :: [ShakeInput] -> WrittenNames
+writtenNames inputs =
+  WrittenNames
+    { wnExternal =
+        Set.fromList [key | (unqual, key, origins) <- written, unqual, null origins],
+      wnLocal =
+        Set.fromList [key | (_, _, origins) <- written, (_, key) <- origins]
+    }
+  where
+    symsOf = symsOfInputs inputs
+    written =
+      [ (isUnqual rdr, occKeyOf rdr, resolveRdr symsOf (siSyms si) (siEnv si) rdr)
+      | si <- inputs,
+        rdr <- namesIn (siDecls si)
+      ]
+    -- Only an unqualified write can be claiming an external name: @M.foo@
+    -- says which module it means.
+    isUnqual rdr = case rdr of
+      Unqual _ -> True
+      _ -> False
+
+symsOfInputs :: [ShakeInput] -> Map ModuleName ModuleSymbols
+symsOfInputs inputs =
+  Map.fromList [(m, siSyms si) | si <- inputs, Just m <- [siFile si]]
+
+-- | What one file of the bundle kept.
+liveFile :: LiveSet -> ModuleFile -> LiveFile
+liveFile live = maybe (lsUser live) (liveLocal live)
+
 -- | What one local module kept; nothing at all for a module the shaker
 -- never saw.
 liveLocal :: LiveSet -> ModuleName -> LiveFile
@@ -113,7 +167,7 @@ shake wholeFiles roots inputs =
         }
 
     nodes = concatMap (fileNodes symsOf) inputs
-    symsOf = Map.fromList [(m, siSyms si) | si <- inputs, Just m <- [siFile si]]
+    symsOf = symsOfInputs inputs
 
     providers :: Map GlobalKey [Int]
     providers =

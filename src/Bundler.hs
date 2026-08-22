@@ -25,7 +25,7 @@ import Data.Char (isAlpha, isSpace)
 import Data.Containers.ListUtils (nubOrd)
 import Data.IntSet (IntSet)
 import Data.IntSet qualified as IntSet
-import Data.List (dropWhileEnd, intercalate, intersect, sortOn)
+import Data.List (dropWhileEnd, intercalate, intersect, isInfixOf, isSuffixOf, sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
@@ -71,11 +71,20 @@ bundle cfg = runExceptT $ do
   withSyms <- ExceptT (pure (resolveReExports withSyms0))
   let userSyms = moduleSymbols userFile
       symsOf = Map.fromList [(lmName lm, syms) | (lm, syms) <- withSyms]
-  -- Reachability is decided before renaming, so the names of the
-  -- declarations that go never take part in the bundle's flat namespace.
-  live <- ExceptT (pure (shakeLive cfg symsOf userFile userSyms withSyms))
-  let liveDeclsOf file decls = keepLive (lfDecls file) decls
+  -- Where every written name comes from, which both the reachability graph
+  -- and the naming below are read off. Reachability is decided before
+  -- renaming, so the names of the declarations that go never take part in
+  -- the bundle's flat namespace.
+  inputs <- ExceptT (pure (bundleInputs symsOf userFile userSyms withSyms))
+  let live = shakeLive (cfgTreeShake cfg) userFile userSyms withSyms inputs
+      liveDeclsOf file decls = keepLive (lfDecls file) decls
       shakenSyms file syms = syms {msAll = Map.restrictKeys (msAll syms) (lfKeys file)}
+      -- An open import does not say what it brings in, but a name the
+      -- surviving code writes and no local module provides can only be
+      -- coming from one, so no local name may keep that spelling.
+      written =
+        writtenNames
+          [si {siDecls = liveDeclsOf (liveFile live (siFile si)) (siDecls si)} | si <- inputs]
   mrenamer <- liftIO (traverse startRenamer (cfgRenameCmd cfg))
   plan <-
     ExceptT
@@ -83,6 +92,7 @@ bundle cfg = runExceptT $ do
           mrenamer
           userFile
           (shakenSyms (lsUser live) userSyms)
+          (wnExternal written)
           [(lm, shakenSyms (liveLocal live (lmName lm)) syms) | (lm, syms) <- withSyms]
       )
   libEnvs0 <-
@@ -125,8 +135,18 @@ bundle cfg = runExceptT $ do
       liftIO . hPutStrLn stderr $
         "note: user code could not be carried verbatim; comments are dropped"
     _ -> pure ()
-  let keptOpen =
-        nubOrd (map renderImport (concatMap (\(_, _, _, e) -> reOpenExtImports e) liveLocals))
+  -- Every name that kept its original spelling is hidden from the open
+  -- imports the bundle carries. An open import may well export it, and
+  -- ambiguity would be an error at every use; hiding it changes nothing,
+  -- because a name is only kept when nothing in the bundle writes it with
+  -- an external meaning.
+  let hidden = hiddenFromOpenImports plan (shakenSyms (lsUser live) userSyms) written
+      keptOpen =
+        nubOrd
+          [ withHiding hidden (renderImport imp)
+          | (_, _, _, e) <- liveLocals,
+            imp <- reOpenExtImports e
+          ]
       -- An explicit import of Prelude - qualified or not - cancels the
       -- implicit one for the whole merged module. When a library's rewritten
       -- references force a canonical Prelude import and the user's file has
@@ -155,6 +175,7 @@ bundle cfg = runExceptT $ do
           [defs | (_, _, defs) <- libDirs]
           userFile
           (Set.fromList (map lmName locals))
+          hidden
           extImportLines
           userSlice
           userDirectives
@@ -166,7 +187,8 @@ bundle cfg = runExceptT $ do
       liftIO . hPutStrLn stderr $
         "note: kept library imports whose names cannot be attributed:\n"
           <> unlines (map ("  " <>) kept)
-          <> "these may make names ambiguous in the bundle"
+          <> "every name the bundle keeps spelled as written is hidden from them,\n"
+          <> "but a data constructor cannot be hidden and may still be ambiguous"
   checked <- ExceptT (selfCheck cliDefines out)
   let mopts = cfgMinify cfg
       -- Pre-formatting only matters for sections that stay verbatim.
@@ -323,6 +345,50 @@ sliceUserRegion pf dropped patches = do
         | otherwise = squeezeBlanks region
   pure (intercalate "\n" (pre <> body))
 
+-- | The names that keep their original spelling in the bundle and that
+-- something in it writes, rendered as import-list items.
+--
+-- Only written names can go ambiguous, and a data constructor is left out
+-- because an import list cannot name one on its own (see the README).
+hiddenFromOpenImports :: RenamePlan -> ModuleSymbols -> WrittenNames -> [String]
+hiddenFromOpenImports plan userSyms written =
+  nubOrd . sortOn id $
+    [ item name
+    | (key@(ns, old), name) <- kept,
+      name == old,
+      ns /= NsData,
+      key `Set.member` wnLocal written,
+      key `Set.notMember` wnExternal written
+    ]
+  where
+    -- The user's own names are never renamed, so a library's open import
+    -- can shadow one of those just as easily.
+    kept =
+      [(key, new) | entries <- Map.elems (rpByModule plan), (key, new) <- Map.toList entries]
+        <> [(key, name) | key@(_, name) <- Map.keys (msAll userSyms)]
+    item name
+      | isOperatorString name = "(" <> name <> ")"
+      | otherwise = name
+
+-- | Add names to an import's hiding list, opening one if it has none. The
+-- rendered import is normalized to a single line first, so that the closing
+-- parenthesis of an existing list is where this expects it.
+withHiding :: [String] -> String -> String
+withHiding [] rendered = rendered
+withHiding names rendered
+  | " hiding (" `isInfixOf` line,
+    Just core <- stripSuffix ")" line =
+      case reverse core of
+        '(' : _ -> core <> list <> ")"
+        _ -> core <> ", " <> list <> ")"
+  | otherwise = line <> " hiding (" <> list <> ")"
+  where
+    line = unwords (words rendered)
+    list = intercalate ", " names
+    stripSuffix suffix s
+      | suffix `isSuffixOf` s = Just (take (length s - length suffix) s)
+      | otherwise = Nothing
+
 -- | Collapse runs of blank lines into one.
 squeezeBlanks :: [String] -> [String]
 squeezeBlanks ("" : rest@("" : _)) = squeezeBlanks rest
@@ -374,51 +440,29 @@ remapDirectives :: IntSet -> [(Int, Int, String)] -> [(Int, Int, String)]
 remapDirectives live directives =
   [(IntSet.size (fst (IntSet.split i live)), line, text) | (i, line, text) <- directives]
 
--- | Decide what survives, honoring @--tree-shake-lib@ / @--tree-shake-app@.
--- With neither of them everything does, and the reachability graph (and the
--- environments it needs) is never built.
-shakeLive ::
-  Config ->
+-- | Every file of the bundle paired with the environment that says where
+-- the names it writes come from.
+--
+-- Resolving a written name only needs to know which module provides it, so
+-- the plan behind these environments may name everything as it already is.
+bundleInputs ::
   Map.Map ModuleName ModuleSymbols ->
   ParsedFile ->
   ModuleSymbols ->
   [(LocalModule, ModuleSymbols)] ->
-  Either BundleError LiveSet
-shakeLive cfg symsOf userFile userSyms withSyms
-  | not (anyTreeShake opts) = Right everything
-  | otherwise = do
-      libEnvs <-
-        traverse
-          (\(lm, _) -> mkResolveEnv idPlan symsOf (Just (lmName lm)) (lmParsed lm))
-          withSyms
-      userEnv <- mkResolveEnv idPlan symsOf Nothing userFile
-      let inputs =
-            ShakeInput Nothing (declsOf userFile) userSyms userEnv
-              : [ ShakeInput (Just (lmName lm)) (declsOf (lmParsed lm)) syms env
-                | ((lm, syms), env) <- zip withSyms libEnvs
-                ]
-          appRoots
-            | tsApp opts = userRoots userFile userSyms
-            | otherwise = Nothing
-          wholeFiles =
-            Set.fromList $
-              [Nothing | appRoots == Nothing]
-                <> [Just (lmName lm) | not (tsLib opts), (lm, _) <- withSyms]
-          roots =
-            Set.fromList
-              [(Nothing, key) | keys <- maybe [] pure appRoots, key <- Set.toList keys]
-      pure (shake wholeFiles roots inputs)
-  where
-    opts = cfgTreeShake cfg
-    everything =
-      keepEverything
-        (length (declsOf userFile), userSyms)
-        [ (lmName lm, length (declsOf (lmParsed lm)), syms)
-        | (lm, syms) <- withSyms
+  Either BundleError [ShakeInput]
+bundleInputs symsOf userFile userSyms withSyms = do
+  libEnvs <-
+    traverse
+      (\(lm, _) -> mkResolveEnv idPlan symsOf (Just (lmName lm)) (lmParsed lm))
+      withSyms
+  userEnv <- mkResolveEnv idPlan symsOf Nothing userFile
+  pure $
+    ShakeInput Nothing (declsOf userFile) userSyms userEnv
+      : [ ShakeInput (Just (lmName lm)) (declsOf (lmParsed lm)) syms env
+        | ((lm, syms), env) <- zip withSyms libEnvs
         ]
-    -- Reachability only needs to know which module a written name comes
-    -- from, so the plan behind these environments may name everything as it
-    -- already is.
+  where
     idPlan =
       RenamePlan
         ( Map.fromList
@@ -426,6 +470,36 @@ shakeLive cfg symsOf userFile userSyms withSyms
             | (lm, syms) <- withSyms
             ]
         )
+
+-- | Decide what survives, honoring @--tree-shake-lib@ / @--tree-shake-app@.
+-- With neither of them everything does.
+shakeLive ::
+  TreeShakeOptions ->
+  ParsedFile ->
+  ModuleSymbols ->
+  [(LocalModule, ModuleSymbols)] ->
+  [ShakeInput] ->
+  LiveSet
+shakeLive opts userFile userSyms withSyms inputs
+  | not (anyTreeShake opts) = everything
+  | otherwise = shake wholeFiles roots inputs
+  where
+    everything =
+      keepEverything
+        (length (declsOf userFile), userSyms)
+        [ (lmName lm, length (declsOf (lmParsed lm)), syms)
+        | (lm, syms) <- withSyms
+        ]
+    appRoots
+      | tsApp opts = userRoots userFile userSyms
+      | otherwise = Nothing
+    wholeFiles =
+      Set.fromList $
+        [Nothing | appRoots == Nothing]
+          <> [Just (lmName lm) | not (tsLib opts), (lm, _) <- withSyms]
+    roots =
+      Set.fromList
+        [(Nothing, key) | keys <- maybe [] pure appRoots, key <- Set.toList keys]
 
 -- | Stitch the output text together from pretty-printed pieces: pragma
 -- union, user module header, merged imports, then the (renamed)
@@ -440,13 +514,15 @@ assemble ::
   -- | Every local module that was expanded, including any that tree shaking
   -- emptied: their imports are gone from the bundle all the same.
   Set.Set ModuleName ->
+  -- | Names to hide from the user's own open imports.
+  [String] ->
   [String] ->
   Maybe String ->
   [(Int, Int, String)] ->
   [GHC.Hs.LHsDecl GHC.Hs.GhcPs] ->
   [(LocalModule, [(Int, Int, String)], [GHC.Hs.LHsDecl GHC.Hs.GhcPs])] ->
   String
-assemble embedPos minifyOpts userDefaults libDefaults userFile localNames extImportLines userSlice userDirectives userDecls locals =
+assemble embedPos minifyOpts userDefaults libDefaults userFile localNames hidden extImportLines userSlice userDirectives userDecls locals =
   intercalate "\n\n" (filter (not . null) chunks) <> "\n"
   where
     chunks =
@@ -490,10 +566,18 @@ assemble embedPos minifyOpts userDefaults libDefaults userFile localNames extImp
     -- The user's imports survive verbatim (minus expanded local modules);
     -- library imports arrive pre-digested as canonical/kept lines.
     userImports =
-      [ renderImport imp
+      [ withHiding (if openExternal (unLoc imp) then hidden else []) (renderImport imp)
       | imp <- hsmodImports (unLoc (pfModule userFile)),
         unLoc (ideclName (unLoc imp)) `Set.notMember` localNames
       ]
+    -- An import that puts names in unqualified scope without saying which
+    -- ones: no list at all, or a hiding list.
+    openExternal imp =
+      GHC.Hs.ideclQualified imp == GHC.Hs.NotQualified
+        && case GHC.Hs.ideclImportList imp of
+          Nothing -> True
+          Just (GHC.Hs.EverythingBut, _) -> True
+          _ -> False
     imports = nubOrd (userImports <> extImportLines)
 
     -- Minifying the library section collapses each run of consecutive
