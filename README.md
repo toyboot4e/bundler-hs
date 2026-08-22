@@ -52,9 +52,11 @@ import qualified SuffixArray as SA   -- build  ->  buildSA
 import qualified Data.Deque          -- push   ->  pushD, else pushDeque, else pushDataDeque
 ```
 
-Operators cannot carry a suffix, so they always keep their name, which makes two library modules exporting the same operator an error. Binding one alias to more than one module is an error too. Both are resolvable with `--rename-cmd`, which is told the suffix the default rule settled on (empty for a name that keeps its spelling), so `echo "$name$suffix"` reproduces the default behavior.
+Operators cannot carry a suffix, so they always keep their name, which makes two library modules exporting the same operator an error, resolvable with `--rename-cmd`. That command is told the suffix the default rule settled on (empty for a name that keeps its spelling), so `echo "$name$suffix"` reproduces the default behavior.
 
-In library modules, `import Prelude hiding (…)` lists are pruned if the conflicting items are renamed. Names hidden for other reasons stay hidden (with a warning).
+Binding one alias to two modules is an error wherever the bundler has to rewrite the references, which means anywhere in a library module, and in your own file when a local module is one of the two. Two external modules under one alias in your own file are left alone, because your imports survive as written and GHC unions their scope.
+
+In library modules, `import Prelude hiding (…)` lists are pruned when the renames make them unnecessary. A list that cannot be pruned is carried into the bundle, where it governs the whole merged module rather than the one library file that wrote it. When your own file has no Prelude import of its own, the bundle also emits a plain `import Prelude` so your code keeps the full implicit Prelude, and the leftover hiding stops taking effect.
 
 ### Tree shaking
 
@@ -71,11 +73,13 @@ The roots are every declaration of your own file for `--tree-shake-lib`. For `--
 What a declaration needs is read generously: every name written anywhere inside it counts, local binders included, so the analysis errs towards keeping code. Only declarations that never stand on their own are dropped without being named:
 
 - an instance goes when a local class or type of its head goes, and stays when its head is entirely external (an orphan instance is always kept),
-- a type signature, a fixity declaration, an `INLINE` or `SPECIALIZE` pragma goes with the binding it annotates.
+- a type signature, a fixity declaration or an `INLINE` pragma goes with the binding it annotates. A pragma the bundler does not recognize is kept whenever any name it mentions survives, which can only keep code alive, never drop it.
 
 A module that loses every declaration loses its banner, its language pragmas, and its external imports along with it. Comments written directly above a dropped declaration of your own file go with it.
 
 Preserved CPP conditionals are analysed with every branch in play, so a declaration only one branch uses still survives. A conditional left enclosing nothing is dropped like any other empty one.
+
+Shaking is also what keeps the hiding lists of the section above small, because a name that is not in the bundle is not hidden from anything either. On a solution against a large library, an unshaken bundle of 107 KB carried 60 KB of hiding lists, and `--tree-shake-lib` took the whole thing to 14 KB.
 
 ### Language extension unification
 
