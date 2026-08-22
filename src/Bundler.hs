@@ -381,7 +381,6 @@ keptImportsNote risky =
   intercalate "\n" $
     "note: these imports may cause conflicting names, due to a bundler-hs limitation:"
       : map ("  " <>) risky
-        <> ["hint: naming what (..) brings in lets the bundler resolve those names instead"]
 
 -- | Can this import be given a hiding list at all? Only one that has no
 -- list of its own, or already hides. An import list that names what it
