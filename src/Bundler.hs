@@ -184,11 +184,11 @@ bundle cfg = runExceptT $ do
           userDirectives
           renamedUser
           renamedLocals
-  -- The note shows the imports as the library wrote them, not with the
-  -- hiding list bolted on: that list is the answer, not the problem.
-  case keptImports of
+  -- Only the imports nothing could be hidden from are worth a word: the
+  -- rest are handled, and the note shows them as the library wrote them.
+  case [line | (line, hidable) <- keptImports, not hidable] of
     [] -> pure ()
-    kept -> liftIO (hPutStrLn stderr (keptImportsNote kept))
+    risky -> liftIO (hPutStrLn stderr (keptImportsNote risky))
   checked <- ExceptT (selfCheck cliDefines out)
   let mopts = cfgMinify cfg
       -- Pre-formatting only matters for sections that stay verbatim.
@@ -370,25 +370,18 @@ hiddenFromOpenImports plan userSyms written =
       | isOperatorString name = "(" <> name <> ")"
       | otherwise = name
 
--- | What to say about the library imports that end up in the bundle
--- verbatim, because the bundler cannot tell which names they bring in.
+-- | What to say about a library import the bundle had to keep as written
+-- and could not hide anything from.
 --
--- They are in scope for all of the merged module rather than the one file
--- that asked for them, so each line says whether the bundle's own names
--- could be hidden from it.
-keptImportsNote :: [(String, Bool)] -> String
-keptImportsNote kept =
+-- It is in scope for all of the merged module rather than the one file that
+-- asked for it, and an import list that names what it brings in cannot also
+-- hide, so the bundle's own names cannot be moved out of its way.
+keptImportsNote :: [String] -> String
+keptImportsNote risky =
   intercalate "\n" $
-    "note: these library imports are in scope for the whole bundle:"
-      : [ "  " <> pad line <> status hidable
-        | (line, hidable) <- kept
-        ]
-  where
-    -- Aligned, but never pushed off the screen by one long import.
-    width = minimum [60, maximum (map (length . fst) kept)]
-    pad line = line <> replicate (width - length line) ' '
-    status True = "  (bundle names hidden from it)"
-    status False = "  (may be ambiguous)"
+    "note: these imports may cause conflicting names, due to a bundler-hs limitation:"
+      : map ("  " <>) risky
+        <> ["hint: naming what (..) brings in lets the bundler resolve those names instead"]
 
 -- | Can this import be given a hiding list at all? Only one that has no
 -- list of its own, or already hides. An import list that names what it
