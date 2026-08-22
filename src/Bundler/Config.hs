@@ -140,9 +140,9 @@ configParser =
     <*> option
       readEmbedPosition
       ( long "embed-position"
-          <> metavar "after|before"
+          <> metavar "POS"
           <> value EmbedAfter
-          <> help "Where expanded library code goes relative to your own (default: after)"
+          <> help "Where library code goes relative to your own: after (default) or before"
       )
 
 -- | @NAME@ (defined as @1@, like the C preprocessor) or @NAME=VALUE@.
