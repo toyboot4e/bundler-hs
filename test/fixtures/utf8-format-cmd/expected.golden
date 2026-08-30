@@ -1,0 +1,12 @@
+module Main (
+        main
+    ) where
+
+-- 日本語のコメント: 挨拶を表示する
+main :: IO ()
+main = putStrLn (greetingG <> "、世界")
+
+-- ### Greet
+
+greetingG :: String
+greetingG = "こんにちは"

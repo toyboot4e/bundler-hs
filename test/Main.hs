@@ -11,9 +11,11 @@ import Bundler.Config
   )
 import Bundler.Error (BundleError (..), renderBundleError)
 import Control.Monad (filterM, when)
-import Data.ByteString.Lazy.Char8 qualified as LBS8
+import Data.ByteString.Lazy qualified as LBS
 import Data.List (isPrefixOf, sort)
 import Data.Maybe (isJust)
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import System.Directory
   ( createDirectoryIfMissing,
     doesDirectoryExist,
@@ -112,10 +114,15 @@ fixtureTest compileGate name = do
     case (errCase, result) of
       (False, Right out) -> do
         when compileGate (assertCompiles name out)
-        pure (LBS8.pack out)
+        pure (utf8Bytes out)
       (False, Left err) -> fail ("unexpected bundling error:\n" <> renderBundleError err)
-      (True, Left err) -> pure (LBS8.pack (renderBundleError err))
+      (True, Left err) -> pure (utf8Bytes (renderBundleError err))
       (True, Right _) -> fail "expected a bundling error, but bundling succeeded"
+
+-- | Golden files are UTF-8, like the Haskell sources they hold. Packing a
+-- 'String' byte-per-'Char' would truncate every non-ASCII character.
+utf8Bytes :: String -> LBS.ByteString
+utf8Bytes = LBS.fromStrict . TE.encodeUtf8 . T.pack
 
 substDir :: FilePath -> String -> String
 substDir dir s = case s of

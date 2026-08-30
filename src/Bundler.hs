@@ -20,7 +20,7 @@ import Bundler.SourcePatch (Patch, applyPatches)
 import Bundler.Symbols
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except (ExceptT (..), catchE, runExceptT, throwE)
-import Data.ByteString.Lazy.Char8 qualified as LBS8
+import Data.ByteString.Lazy qualified as LBS
 import Data.Char (isAlpha, isSpace)
 import Data.Containers.ListUtils (nubOrd)
 import Data.IntSet (IntSet)
@@ -29,6 +29,8 @@ import Data.List (dropWhileEnd, intercalate, intersect, isInfixOf, isSuffixOf, s
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
+import Data.Text qualified as T
+import Data.Text.Encoding qualified as TE
 import GHC.Driver.Session (DynFlags)
 import GHC.Hs (hsmodDecls, hsmodImports, ideclName)
 import GHC.Hs qualified
@@ -711,19 +713,33 @@ saveUnformatted contents = do
   pure path
 
 -- | Pipe the bundle through the user's formatter (stdin to stdout).
+--
+-- A formatter speaks bytes and Haskell source is UTF-8, so both directions
+-- are encoded as such. Going through 'Data.ByteString.Lazy.Char8' would
+-- truncate every non-ASCII character to its low byte, which turns a comment
+-- into mojibake and a string literal into something that no longer lexes.
 runFormatter :: String -> String -> IO (Either BundleError String)
 runFormatter cmd input = do
   (code, out, err) <-
     readProcess
-      (setStdin (byteStringInput (LBS8.pack input)) (shell cmd))
+      (setStdin (byteStringInput (encodeUtf8 input)) (shell cmd))
   pure $ case code of
-    ExitSuccess -> Right (LBS8.unpack out)
+    ExitSuccess -> Right (decodeUtf8 out)
     ExitFailure n ->
       Left
         ( FormatCmdError
             cmd
-            ("exited with code " <> show n <> ":\n" <> LBS8.unpack err)
+            ("exited with code " <> show n <> ":\n" <> decodeUtf8 err)
         )
+
+encodeUtf8 :: String -> LBS.ByteString
+encodeUtf8 = LBS.fromStrict . TE.encodeUtf8 . T.pack
+
+-- | Lenient: a formatter that emits something other than UTF-8 should not
+-- crash the bundler, it should fail the re-parse check like any other
+-- formatter that mangles its input.
+decodeUtf8 :: LBS.ByteString -> String
+decodeUtf8 = T.unpack . TE.decodeUtf8Lenient . LBS.toStrict
 
 -- | Re-parse our own output before emitting it: the pretty-printer is not
 -- guaranteed to produce re-parseable code in every corner case, and a bundle
