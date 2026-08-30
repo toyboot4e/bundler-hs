@@ -114,7 +114,25 @@ minifyWith opts src
                | not (null names)
                ]
       where
-        (langs, others) = partition ("{-# LANGUAGE" `isPrefixOf`) ls
+        (langs, others) = partition ("{-# LANGUAGE" `isPrefixOf`) (joinPragmas ls)
+        -- A pragma may be written over several lines. Judging each line on
+        -- its own would leave the continuation behind as if it were code,
+        -- and take only the extensions named on the opening line.
+        joinPragmas [] = []
+        joinPragmas (l : rest)
+          | "{-#" `isPrefixOf` l,
+            depth > 0 =
+              let (more, rest') = closePragma depth rest
+               in unwords (words (unlines (l : more))) : joinPragmas rest'
+          | otherwise = l : joinPragmas rest
+          where
+            depth = nestingDelta l
+        closePragma _ [] = ([], [])
+        closePragma depth (l : rest)
+          | depth' <= 0 = ([l], rest)
+          | otherwise = let (more, rest') = closePragma depth' rest in (l : more, rest')
+          where
+            depth' = depth + nestingDelta l
         -- The union of user and library pragmas repeats names; keep the
         -- first occurrence of each.
         names =
