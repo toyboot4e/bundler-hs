@@ -594,8 +594,14 @@ expandWildcards ::
   ResolveEnv ->
   LHsDecl GhcPs ->
   RM (LHsDecl GhcPs)
-expandWildcards plan symsOf env =
-  everywhereM (mkM patCase `extM` exprCase `extM` punPatCase `extM` punExprCase)
+expandWildcards plan symsOf env decl =
+  -- Records over a local constructor go first: 'expandFlds' resolves all of
+  -- their fields, puns included, through the constructor. Only what is left
+  -- (record updates, constructors that do not resolve) reaches the pun pass,
+  -- which must not rename a label before 'expandFlds' has read it - the
+  -- wildcard's missing fields are decided by the names as written.
+  everywhereM (mkM patCase `extM` exprCase) decl
+    >>= everywhereM (mkM punPatCase `extM` punExprCase)
   where
     -- Puns over renamed fields must become explicit (@C{fA = f}@): the pun
     -- form would bind/reference a different variable after renaming, and

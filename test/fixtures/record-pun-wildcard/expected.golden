@@ -1,0 +1,24 @@
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE RecordWildCards #-}
+
+module Main
+  ( main
+  ) where
+
+main :: IO ()
+main = print (dumpR (buildR 1))
+
+-- ### Rec
+data PointR = PointR
+  { pxR :: Int
+  , pyR :: Int
+  }
+
+buildR :: Int -> PointR
+buildR n =
+  let px = n
+      py = n + 1
+   in PointR {pxR = px, pyR = py}
+
+dumpR :: PointR -> Int
+dumpR PointR {pxR = px, pyR = py} = px + py
