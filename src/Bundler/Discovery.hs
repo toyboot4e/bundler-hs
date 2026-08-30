@@ -8,6 +8,7 @@ where
 
 import Bundler.Error
 import Bundler.Parse
+import Bundler.Utf8 (readUtf8File)
 import Control.Monad (filterM, foldM)
 import Data.Graph (SCC (..), stronglyConnComp)
 import Data.Map.Strict (Map)
@@ -18,7 +19,6 @@ import GHC.Types.SrcLoc (unLoc)
 import Language.Haskell.Syntax.Module.Name (ModuleName, moduleNameSlashes, moduleNameString)
 import System.Directory (doesFileExist)
 import System.FilePath ((<.>), (</>))
-import System.IO (readFile')
 
 -- | One local library module pulled into the bundle.
 data LocalModule = LocalModule
@@ -75,7 +75,7 @@ discoverLocalModules extraDefines libDirs userFile = do
             Left err -> pure (Left err)
             Right Nothing -> go seen rest
             Right (Just (path, flags, defs)) -> do
-              src <- readFile' path
+              src <- readUtf8File path
               -- Macros only the library's own project supplies disappear
               -- along with that package, so a module that could rely on them
               -- has to be resolved now. Macros the bundle's own project also

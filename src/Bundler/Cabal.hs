@@ -7,6 +7,7 @@ module Bundler.Cabal
 where
 
 import Bundler.Error
+import Bundler.Utf8 (readUtf8File)
 import Data.ByteString qualified as BS
 import Data.Char (isAlphaNum, isSpace, toLower)
 import Data.Containers.ListUtils (nubOrd)
@@ -33,7 +34,6 @@ import Distribution.Types.TestSuite (testBuildInfo)
 import Distribution.Version (Version, mkVersion, withinRange)
 import System.Directory (canonicalizePath, doesFileExist, listDirectory)
 import System.FilePath (takeDirectory, takeExtension, (<.>), (</>))
-import System.IO (readFile')
 
 -- | The language defaults a source tree inherits from its enclosing cabal
 -- project. The defaults are synthesized into LANGUAGE pragma lines so that
@@ -95,7 +95,7 @@ findProjectFlags start = canonicalizePath start >>= go
 
     readIfPresent path = do
       there <- doesFileExist path
-      if there then (: []) <$> readFile' path else pure []
+      if there then (: []) <$> readUtf8File path else pure []
 
     -- Later files win, per package and per flag.
     layer older newer = Map.unionWith (flip Map.union) older newer

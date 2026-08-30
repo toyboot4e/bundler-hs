@@ -10,12 +10,14 @@ import Bundler.Config
     parseConfigFromArgs,
   )
 import Bundler.Error (BundleError (..), renderBundleError)
+import Control.Exception (bracket_)
 import Control.Monad (filterM, when)
 import Data.ByteString.Lazy qualified as LBS
-import Data.List (isPrefixOf, sort)
+import Data.List (isInfixOf, isPrefixOf, sort)
 import Data.Maybe (isJust)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
+import GHC.IO.Encoding (char8, getLocaleEncoding, setLocaleEncoding)
 import System.Directory
   ( createDirectoryIfMissing,
     doesDirectoryExist,
@@ -28,11 +30,12 @@ import System.Directory
 import System.Environment (lookupEnv, setEnv)
 import System.Exit (ExitCode (..))
 import System.FilePath ((</>))
-import System.IO (hClose, hPutStr, openTempFile)
+import System.IO (hClose, hPutStr, hSetEncoding, openTempFile, utf8)
 import System.Process (readProcessWithExitCode)
-import Test.Tasty (TestTree, defaultMain, testGroup)
+import Test.Tasty (TestTree, defaultMain, localOption, testGroup)
 import Test.Tasty.Golden (goldenVsString)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
+import Test.Tasty.Runners (NumThreads (..))
 
 fixturesRoot :: FilePath
 fixturesRoot = "test" </> "fixtures"
@@ -43,12 +46,17 @@ main = do
   entries <- sort <$> listDirectory fixturesRoot
   dirs <- filterM (doesDirectoryExist . (fixturesRoot </>)) entries
   tests <- traverse (fixtureTest compileGate) dirs
+  -- The unit tests below mutate process-global state (TMPDIR, the locale
+  -- encoding), so nothing may run beside them.
   defaultMain
-    ( testGroup
-        "all"
-        [ testGroup "golden" tests,
-          testGroup "unit" [formatFailureSalvage]
-        ]
+    ( localOption
+        (NumThreads 1)
+        ( testGroup
+            "all"
+            [ testGroup "golden" tests,
+              testGroup "unit" [formatFailureSalvage, utf8UnderNonUtf8Locale]
+            ]
+        )
     )
 
 -- | A failing formatter must not lose the bundle: the pre-format output
@@ -90,6 +98,35 @@ formatFailureSalvage = testCase "format failure saves the unformatted bundle" $ 
     _ ->
       assertBool ("expected exactly one salvaged bundle, found: " <> show saved) False
   removeDirectoryRecursive sandbox
+
+-- | Haskell source is UTF-8 whatever the locale says, so the bundler must
+-- not read it through the locale encoding: under @LC_ALL=C@ that either
+-- mangles every non-ASCII character or dies with a decoding error.
+utf8UnderNonUtf8Locale :: TestTree
+utf8UnderNonUtf8Locale =
+  testCase "non-ASCII source survives a non-UTF-8 locale" $ do
+    let fixture = fixturesRoot </> "utf8-format-cmd"
+        cfg =
+          Config
+            { cfgInput = fixture </> "Main.hs",
+              cfgLibDirs = [fixture </> "lib"],
+              cfgDefines = [],
+              cfgRenameCmd = Nothing,
+              cfgFormat = FormatNone,
+              cfgMinify = noMinify,
+              cfgTreeShake = noTreeShake,
+              cfgEmbedPosition = EmbedAfter
+            }
+    locale <- getLocaleEncoding
+    result <-
+      bracket_ (setLocaleEncoding char8) (setLocaleEncoding locale) (bundle cfg)
+    out <- either (assertFailure . renderBundleError) pure result
+    assertBool
+      ("the user file's comment was mangled:\n" <> out)
+      ("-- 日本語のコメント" `isInfixOf` out)
+    assertBool
+      ("the library's string literal was mangled:\n" <> out)
+      ("\"こんにちは\"" `isInfixOf` out)
 
 -- | One golden test per fixture directory. The @args@ file holds
 -- whitespace-separated CLI arguments; @{DIR}@ tokens and relative
@@ -135,6 +172,7 @@ assertCompiles :: String -> String -> IO ()
 assertCompiles name out = do
   tmp <- getTemporaryDirectory
   (path, h) <- openTempFile tmp (name <> ".hs")
+  hSetEncoding h utf8
   hPutStr h out
   hClose h
   (code, _, ghcErr) <- readProcessWithExitCode "ghc" ["-fno-code", path] ""

@@ -18,6 +18,7 @@ import Bundler.Render
 import Bundler.Shake
 import Bundler.SourcePatch (Patch, applyPatches)
 import Bundler.Symbols
+import Bundler.Utf8 (hSetUtf8, readUtf8File)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Except (ExceptT (..), catchE, runExceptT, throwE)
 import Data.ByteString.Lazy qualified as LBS
@@ -41,7 +42,7 @@ import Language.Haskell.Syntax.Module.Name (ModuleName, mkModuleName, moduleName
 import System.Directory (getTemporaryDirectory)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory)
-import System.IO (hClose, hPutStr, hPutStrLn, openTempFile, readFile', stderr)
+import System.IO (hClose, hPutStr, hPutStrLn, openTempFile, stderr)
 import System.Process.Typed (byteStringInput, readProcess, setStdin, shell)
 
 -- | Run the whole pipeline, producing the bundled source for stdout.
@@ -57,7 +58,7 @@ bundle cfg = runExceptT $ do
   projFlags <- liftIO (findProjectFlags (takeDirectory (cfgInput cfg)))
   userDefaults <- ExceptT (findProjectDefaults projFlags (takeDirectory (cfgInput cfg)))
   userFlags <- ExceptT (applyPragmaLines baseDynFlags (pdPragmas userDefaults))
-  src <- liftIO (readFile' (cfgInput cfg))
+  src <- liftIO (readUtf8File (cfgInput cfg))
   -- The bundle is one file compiled inside the user's project, so the macros
   -- GHC will have there are the ones the library's own directives must be
   -- evaluated under. A library project's cpp-options only fill in macros the
@@ -708,6 +709,7 @@ saveUnformatted :: String -> IO FilePath
 saveUnformatted contents = do
   tmp <- getTemporaryDirectory
   (path, h) <- openTempFile tmp "bundler-hs.hs"
+  hSetUtf8 h
   hPutStr h contents
   hClose h
   pure path

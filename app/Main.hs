@@ -3,6 +3,7 @@ module Main (main) where
 import Bundler (bundle)
 import Bundler.Config (configParserInfo, parserPrefs)
 import Bundler.Error (renderBundleError)
+import Bundler.Utf8 (hSetUtf8)
 import Options.Applicative
   ( ParserResult (..),
     execParserPure,
@@ -11,10 +12,13 @@ import Options.Applicative
   )
 import System.Environment (getArgs)
 import System.Exit (ExitCode (..), exitFailure, exitWith)
-import System.IO (hPutStrLn, stderr)
+import System.IO (hPutStrLn, stderr, stdout)
 
 main :: IO ()
 main = do
+  -- The bundle is UTF-8 source and so are the diagnostics quoting it.
+  hSetUtf8 stdout
+  hSetUtf8 stderr
   args <- getArgs
   let result = execParserPure parserPrefs configParserInfo args
   cfg <- case result of
