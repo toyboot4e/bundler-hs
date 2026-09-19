@@ -1,7 +1,7 @@
 module Main (main) where
 
 import Sorted (merge)
-import Store (insert, partition, size)
+import Store (insert, size)
 
 main :: IO ()
-main = print (insert 1 [2], size [1, 2], partition [4], merge [3, 1])
+main = print (insert 1 [2], size [1, 2], merge [3, 1])

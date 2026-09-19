@@ -77,35 +77,28 @@ data ShakeInput = ShakeInput
 --
 -- This is what an open @import Data.List@ hides from the bundler: its export
 -- list is unknowable, but a name the bundle writes and no local module
--- provides has to be one of its exports. Written names are the whole story
--- for ambiguity, because an ambiguous name is an error where it occurs, not
--- where it is defined.
+-- provides has to be one of its exports. Written names are the whole story,
+-- because an ambiguous name is an error where it occurs, not where it is
+-- defined.
 data WrittenNames = WrittenNames
   { -- | Written unqualified with no local module providing it, so an
     -- external import is. No local name may keep this spelling.
     wnExternal :: Set OccKey,
-    -- | Written, qualified or not, and provided by a local module. After
-    -- renaming these are all unqualified, so these are the occurrences an
-    -- external import could make ambiguous.
-    wnLocal :: Set OccKey,
     -- | Local modules a name is written /qualified/ into, following
     -- re-exports to whoever defines it. Writing @M.f@ chooses to say which
     -- module the name belongs to, and the bundle keeps saying it.
     wnQualified :: Set ModuleName
   }
 
--- | All three in one traversal.
+-- | Both in one traversal.
 --
 -- Binders count as written names, which only ever makes the answer more
--- cautious: a name kept unrenamed less often, or hidden from an import that
--- never exported it.
+-- cautious: a name is kept unrenamed less often.
 writtenNames :: [ShakeInput] -> WrittenNames
 writtenNames inputs =
   WrittenNames
     { wnExternal =
         Set.fromList [key | (unqual, key, origins) <- written, unqual, null origins],
-      wnLocal =
-        Set.fromList [key | (_, _, origins) <- written, (_, key) <- origins],
       wnQualified =
         Set.fromList
           [m | (unqual, _, origins) <- written, not unqual, (Just m, _) <- origins]

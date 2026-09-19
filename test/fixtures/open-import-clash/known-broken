@@ -1,0 +1,10 @@
+The bundle below does not compile, on purpose.
+
+`partition` is a name the bundle keeps and Data.List also exports, and
+Sorted's open import is in scope for the whole merged module, so the use
+in the user's code is an ambiguous occurrence.
+
+The bundler does not hide kept names from open imports: the lists ran to
+tens of kilobytes on a real library, nearly all of it names the module
+never exported. GHC reports the clash exactly, and `--rename-cmd` moves
+the name out of the way.

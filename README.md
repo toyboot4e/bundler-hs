@@ -34,11 +34,7 @@ A name keeps its original spelling when nothing in the bundle competes for it. T
 import Deque   -- push  ->  push
 ```
 
-That last one is how an open import gets a say. `import Control.Monad.State.Class` does not list what it brings in, but a bundle that writes `modify` without any local module defining it has to be getting it from there, so a library's own `modify` moves aside. And because a kept name is never one the bundle writes with an external meaning, every kept name is also hidden from the open imports the bundle carries, which settles the ones nothing happens to write:
-
-```haskell
-import Data.List hiding (partition)   -- `partition` here is the library's
-```
+That last one is how an open import gets a say. `import Control.Monad.State.Class` does not list what it brings in, but a bundle that writes `modify` without any local module defining it has to be getting it from there, so a library's own `modify` moves aside. A name nothing writes is left alone, even when an open import turns out to export it too, which the limitations below cover.
 
 Every other name takes its module's suffix, and the shortest suffix that keeps the bundle collision-free wins:
 
@@ -78,8 +74,6 @@ What a declaration needs is read generously: every name written anywhere inside 
 A module that loses every declaration loses its banner, its language pragmas, and its external imports along with it. Comments written directly above a dropped declaration of your own file go with it.
 
 Preserved CPP conditionals are analysed with every branch in play, so a declaration only one branch uses still survives. A conditional left enclosing nothing is dropped like any other empty one.
-
-Shaking is also what keeps the hiding lists of the section above small, because a name that is not in the bundle is not hidden from anything either. On a solution against a large library, an unshaken bundle of 107 KB carried 60 KB of hiding lists, and `--tree-shake-lib` took the whole thing to 14 KB.
 
 ### Language extension unification
 
@@ -151,7 +145,7 @@ The output is formatted with [hindent](https://github.com/mihaimaruseac/hindent)
 
 Other known limitations:
 
-- An **open import** (`import Data.List`) is handled by hiding every unrenamed top-level name from it. That covers values, types and classes, but not data constructors, because an import list cannot name one on its own. A kept constructor that an open import also exports (`Down`, say) is still ambiguous. The same goes for a name arriving through a `T(..)` item of an import the bundler keeps as written, such as `import Control.Monad.IO.Class (MonadIO(..))`, whose children are unknowable and which cannot take a hiding list either. Move the name out of the way with `--rename-cmd`.
+- An **open import** (`import Data.List`) is carried into the bundle as the library wrote it, where it is in scope for the whole merged module rather than the one file that asked for it. A name the bundle keeps and that module also exports is then an ambiguous occurrence at every use, and so is a name arriving through a `T(..)` item of an import kept as written, such as `import Control.Monad.IO.Class (MonadIO(..))`. GHC names both sides of the clash, so you hear about it at compile time rather than in the judge's verdict. Move your name out of the way with `--rename-cmd`.
 - **Formatting is not preserved.**
 - **Library comments are not preserved.** Their CPP directives are, but their comments are not.
 - A library module that uses `#define`, `#undef`, or `#include` has all of its conditionals resolved at bundle time, not just the ones that need it. There is no `-U` to undefine a macro for that pass.

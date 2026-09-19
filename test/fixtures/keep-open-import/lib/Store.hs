@@ -1,15 +1,11 @@
-module Store (insert, size, partition) where
+module Store (insert, size) where
 
 -- `insert` is also what Data.List calls one of its exports, and Sorted
 -- imports that openly, so this one has to move out of the way. Nothing in
--- the bundle writes `size`, so that one stays as it is.
+-- the bundle writes `size`, so that one stays as it is - Data.List does
+-- not export it, and the open import Sorted wrote is carried unchanged.
 insert :: Int -> [Int] -> [Int]
 insert = (:)
 
 size :: [Int] -> Int
 size = length
-
--- Data.List exports a `partition` too, but nothing in the bundle writes
--- that one, so this name is kept and hidden from the open import instead.
-partition :: [Int] -> ([Int], [Int])
-partition xs = (xs, [])

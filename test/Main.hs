@@ -134,10 +134,14 @@ utf8UnderNonUtf8Locale =
 -- @expected.err.golden@ asserts the rendered bundling error; otherwise
 -- @expected.golden@ asserts stdout (and, with @HSB_TEST_COMPILE=1@, that
 -- the bundle compiles under @ghc -fno-code@).
+-- A @known-broken@ file exempts the fixture from the compile check and
+-- says why: its golden records output that does /not/ compile, pinning a
+-- limitation of the bundler so that fixing it shows up as a golden diff.
 fixtureTest :: Bool -> FilePath -> IO TestTree
 fixtureTest compileGate name = do
   let dir = fixturesRoot </> name
   errCase <- doesFileExist (dir </> "expected.err.golden")
+  knownBroken <- doesFileExist (dir </> "known-broken")
   let golden = dir </> if errCase then "expected.err.golden" else "expected.golden"
   pure . goldenVsString name golden $ do
     args <- map (substDir dir) . words <$> readFile (dir </> "args")
@@ -150,7 +154,7 @@ fixtureTest compileGate name = do
     result <- bundle rebased
     case (errCase, result) of
       (False, Right out) -> do
-        when compileGate (assertCompiles name out)
+        when (compileGate && not knownBroken) (assertCompiles name out)
         pure (utf8Bytes out)
       (False, Left err) -> fail ("unexpected bundling error:\n" <> renderBundleError err)
       (True, Left err) -> pure (utf8Bytes (renderBundleError err))

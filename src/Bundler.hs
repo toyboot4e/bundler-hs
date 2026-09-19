@@ -26,7 +26,7 @@ import Data.Char (isAlpha, isSpace)
 import Data.Containers.ListUtils (nubOrd)
 import Data.IntSet (IntSet)
 import Data.IntSet qualified as IntSet
-import Data.List (dropWhileEnd, intercalate, intersect, isInfixOf, isSuffixOf, sortOn)
+import Data.List (dropWhileEnd, intercalate, intersect, sortOn)
 import Data.Map.Strict qualified as Map
 import Data.Maybe (fromMaybe)
 import Data.Set qualified as Set
@@ -125,7 +125,8 @@ bundle cfg = runExceptT $ do
       [ ExceptT (pure ((,,) lm dirs <$> applyRenames plan symsOf env {reExtAlias = extAliasMap} decls))
       | (lm, decls, dirs, env) <- liveLocals
       ]
-  let userDecls = liveDeclsOf (lsUser live) (declsOf userFile)
+  let localNames = Set.fromList (map lmName locals)
+      userDecls = liveDeclsOf (lsUser live) (declsOf userFile)
       userDirectives = remapDirectives (lfDecls (lsUser live)) (pfDirectives userFile)
       droppedUser = droppedUserLines userFile (lfDecls (lsUser live))
   (renamedUser, userPatches) <-
@@ -139,20 +140,18 @@ bundle cfg = runExceptT $ do
       liftIO . hPutStrLn stderr $
         "note: user code could not be carried verbatim; comments are dropped"
     _ -> pure ()
-  -- Every name that kept its original spelling is hidden from the open
-  -- imports the bundle carries. An open import may well export it, and
-  -- ambiguity would be an error at every use; hiding it changes nothing,
-  -- because a name is only kept when nothing in the bundle writes it with
-  -- an external meaning.
-  let hidden = hiddenFromOpenImports plan (shakenSyms (lsUser live) userSyms) written
-      keptImports =
+  -- Open imports the libraries wrote are carried as they are. Such an
+  -- import is in scope for the whole merged module rather than the one file
+  -- that wrote it, so a name the bundle keeps and the module also exports
+  -- goes ambiguous at every use. GHC reports that precisely, and
+  -- @--rename-cmd@ moves the name out of the way. See the
+  -- @open-import-clash@ fixture.
+  let keptOpen =
         nubOrd
-          [ (renderImport imp, hidableImport (unLoc imp))
+          [ renderImport imp
           | (_, _, _, e) <- liveLocals,
             imp <- reOpenExtImports e
           ]
-      keptOpen =
-        [withHiding (if hidable then hidden else []) line | (line, hidable) <- keptImports]
       -- An explicit import of Prelude - qualified or not - cancels the
       -- implicit one for the whole merged module. When a library's rewritten
       -- references force a canonical Prelude import and the user's file has
@@ -180,18 +179,12 @@ bundle cfg = runExceptT $ do
           userDefaults
           [defs | (_, _, defs) <- libDirs]
           userFile
-          (Set.fromList (map lmName locals))
-          hidden
+          localNames
           extImportLines
           userSlice
           userDirectives
           renamedUser
           renamedLocals
-  -- Only the imports nothing could be hidden from are worth a word: the
-  -- rest are handled, and the note shows them as the library wrote them.
-  case [line | (line, hidable) <- keptImports, not hidable] of
-    [] -> pure ()
-    risky -> liftIO (hPutStrLn stderr (keptImportsNote risky))
   checked <- ExceptT (selfCheck cliDefines out)
   let mopts = cfgMinify cfg
       -- Pre-formatting only matters for sections that stay verbatim.
@@ -348,73 +341,6 @@ sliceUserRegion pf dropped patches = do
         | otherwise = squeezeBlanks region
   pure (intercalate "\n" (pre <> body))
 
--- | The names that keep their original spelling in the bundle and that
--- something in it writes, rendered as import-list items.
---
--- Only written names can go ambiguous, and a data constructor is left out
--- because an import list cannot name one on its own (see the README).
-hiddenFromOpenImports :: RenamePlan -> ModuleSymbols -> WrittenNames -> [String]
-hiddenFromOpenImports plan userSyms written =
-  nubOrd . sortOn id $
-    [ item name
-    | (key@(ns, old), name) <- kept,
-      name == old,
-      ns /= NsData,
-      key `Set.member` wnLocal written,
-      key `Set.notMember` wnExternal written
-    ]
-  where
-    -- The user's own names are never renamed, so a library's open import
-    -- can shadow one of those just as easily.
-    kept =
-      [(key, new) | entries <- Map.elems (rpByModule plan), (key, new) <- Map.toList entries]
-        <> [(key, name) | key@(_, name) <- Map.keys (msAll userSyms)]
-    item name
-      | isOperatorString name = "(" <> name <> ")"
-      | otherwise = name
-
--- | What to say about a library import the bundle had to keep as written
--- and could not hide anything from.
---
--- It is in scope for all of the merged module rather than the one file that
--- asked for it, and an import list that names what it brings in cannot also
--- hide, so the bundle's own names cannot be moved out of its way.
-keptImportsNote :: [String] -> String
-keptImportsNote risky =
-  intercalate "\n" $
-    "note: these imports may cause conflicting names, due to a bundler-hs limitation:"
-      : map ("  " <>) risky
-
--- | Can this import be given a hiding list at all? Only one that has no
--- list of its own, or already hides. An import list that names what it
--- brings in cannot also hide, and a kept library import may well have one:
--- @import Control.Monad.IO.Class (MonadIO(..))@ is kept as written because
--- the children of @MonadIO(..)@ are unknowable, not because it is open.
-hidableImport :: GHC.Hs.ImportDecl GHC.Hs.GhcPs -> Bool
-hidableImport imp = case GHC.Hs.ideclImportList imp of
-  Nothing -> True
-  Just (GHC.Hs.EverythingBut, _) -> True
-  _ -> False
-
--- | Add names to an import's hiding list, opening one if it has none. The
--- rendered import is normalized to a single line first, so that the closing
--- parenthesis of an existing list is where this expects it.
-withHiding :: [String] -> String -> String
-withHiding [] rendered = rendered
-withHiding names rendered
-  | " hiding (" `isInfixOf` line,
-    Just core <- stripSuffix ")" line =
-      case reverse core of
-        '(' : _ -> core <> list <> ")"
-        _ -> core <> ", " <> list <> ")"
-  | otherwise = line <> " hiding (" <> list <> ")"
-  where
-    line = unwords (words rendered)
-    list = intercalate ", " names
-    stripSuffix suffix s
-      | suffix `isSuffixOf` s = Just (take (length s - length suffix) s)
-      | otherwise = Nothing
-
 -- | Collapse runs of blank lines into one.
 squeezeBlanks :: [String] -> [String]
 squeezeBlanks ("" : rest@("" : _)) = squeezeBlanks rest
@@ -540,15 +466,13 @@ assemble ::
   -- | Every local module that was expanded, including any that tree shaking
   -- emptied: their imports are gone from the bundle all the same.
   Set.Set ModuleName ->
-  -- | Names to hide from the user's own open imports.
-  [String] ->
   [String] ->
   Maybe String ->
   [(Int, Int, String)] ->
   [GHC.Hs.LHsDecl GHC.Hs.GhcPs] ->
   [(LocalModule, [(Int, Int, String)], [GHC.Hs.LHsDecl GHC.Hs.GhcPs])] ->
   String
-assemble embedPos minifyOpts userDefaults libDefaults userFile localNames hidden extImportLines userSlice userDirectives userDecls locals =
+assemble embedPos minifyOpts userDefaults libDefaults userFile localNames extImportLines userSlice userDirectives userDecls locals =
   intercalate "\n\n" (filter (not . null) chunks) <> "\n"
   where
     chunks =
@@ -592,12 +516,10 @@ assemble embedPos minifyOpts userDefaults libDefaults userFile localNames hidden
     -- The user's imports survive verbatim (minus expanded local modules);
     -- library imports arrive pre-digested as canonical/kept lines.
     userImports =
-      [ withHiding (if openExternal (unLoc imp) then hidden else []) (renderImport imp)
+      [ renderImport imp
       | imp <- hsmodImports (unLoc (pfModule userFile)),
         unLoc (ideclName (unLoc imp)) `Set.notMember` localNames
       ]
-    openExternal imp =
-      GHC.Hs.ideclQualified imp == GHC.Hs.NotQualified && hidableImport imp
     imports = nubOrd (userImports <> extImportLines)
 
     -- Minifying the library section collapses each run of consecutive

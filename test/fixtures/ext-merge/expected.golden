@@ -3,7 +3,7 @@ module Main
   ) where
 
 import qualified Data.Char
-import Data.Char hiding (main)
+import Data.Char
 import qualified Data.List
 import qualified Data.Map.Strict as MyMap
 import qualified Data.Map.Strict

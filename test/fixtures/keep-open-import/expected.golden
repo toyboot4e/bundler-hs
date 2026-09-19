@@ -3,10 +3,10 @@ module Main
   ) where
 
 import qualified Data.List
-import Data.List hiding (main, merge, partition, size)
+import Data.List
 
 main :: IO ()
-main = print (insertS 1 [2], size [1, 2], partition [4], merge [3, 1])
+main = print (insertS 1 [2], size [1, 2], merge [3, 1])
 
 -- ### Store
 insertS :: Int -> [Int] -> [Int]
@@ -14,9 +14,6 @@ insertS = (:)
 
 size :: [Int] -> Int
 size = length
-
-partition :: [Int] -> ([Int], [Int])
-partition xs = (xs, [])
 
 -- ### Sorted
 merge :: [Int] -> [Int]
