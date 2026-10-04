@@ -8,10 +8,10 @@ import Data.List
 main :: IO ()
 main = print (partition [4], merge [3, 1])
 
--- ### Store
-partition :: [Int] -> ([Int], [Int])
-partition xs = (xs, [])
-
 -- ### Sorted
 merge :: [Int] -> [Int]
 merge xs = sort xs
+
+-- ### Store
+partition :: [Int] -> ([Int], [Int])
+partition xs = (xs, [])

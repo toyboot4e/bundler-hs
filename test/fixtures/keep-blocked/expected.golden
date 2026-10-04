@@ -13,13 +13,6 @@ main = do
   print (sort [2, 1 :: Int], collide)
   print (kept 1, other 2)
 
--- ### Rival
-sharedR :: Int -> Int
-sharedR = negate
-
-other :: Int -> Int
-other = sharedR
-
 -- ### Blocked
 lookupB :: Int -> Int
 lookupB = id
@@ -35,3 +28,10 @@ sharedB = id
 
 kept :: Int -> Int
 kept n = lookupB n + sortB n + collideB n + sharedB n
+
+-- ### Rival
+sharedR :: Int -> Int
+sharedR = negate
+
+other :: Int -> Int
+other = sharedR

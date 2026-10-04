@@ -11,8 +11,10 @@ import Bundler.Parse
 import Bundler.Utf8 (readUtf8File)
 import Control.Monad (filterM, foldM)
 import Data.Graph (SCC (..), stronglyConnComp)
+import Data.List (sort)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
+import Data.Set qualified as Set
 import GHC.Driver.Session (DynFlags)
 import GHC.Hs (hsmodImports, ideclName)
 import GHC.Types.SrcLoc (unLoc)
@@ -104,13 +106,28 @@ discoverLocalModules extraDefines libDirs userFile = do
           hit <- lookupLocal libDirs m
           pure (fmap (\h -> acc <> maybe [] (const [m]) h) hit)
 
+-- | Dependencies before dependents, and modules that constrain each other
+-- in no way in alphabetical order, so the bundle's layout follows the names
+-- rather than the traversal. A depth-first walk of alphabetically sorted
+-- names gives both at once; cycles are rejected first, so the walk cannot
+-- meet one.
 topoSort :: Map ModuleName LocalModule -> Either BundleError [LocalModule]
-topoSort seen = concat <$> traverse fromSCC sccs
+topoSort seen = case [lms | CyclicSCC lms <- sccs] of
+  lms : _ -> Left (ImportCycle (map (moduleNameString . lmName) lms))
+  [] -> Right (reverse (snd (foldl' emit (Set.empty, []) (Map.keys seen))))
   where
     sccs =
       stronglyConnComp
         [ (lm, lmName lm, lmDeps lm)
         | lm <- Map.elems seen
         ]
-    fromSCC (AcyclicSCC lm) = Right [lm]
-    fromSCC (CyclicSCC lms) = Left (ImportCycle (map (moduleNameString . lmName) lms))
+    -- Emitted names and the modules so far, newest first.
+    emit (done, acc) m
+      | m `Set.member` done = (done, acc)
+      | otherwise = case Map.lookup m seen of
+          -- An external import; 'lmDeps' holds local ones only, so this is
+          -- unreachable, and dropping it is still the right answer.
+          Nothing -> (done, acc)
+          Just lm ->
+            let (done', acc') = foldl' emit (Set.insert m done, acc) (sort (lmDeps lm))
+             in (done', lm : acc')

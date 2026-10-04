@@ -11,25 +11,6 @@ main = do
   print (count_C "abracadabra")
   print (plain_ 3)
 
--- ### Plain
-plain_ :: Int -> Int
-plain_ = negate
-
--- ### OpsB
-(<.+>) :: Int -> Int -> Int
-(<.+>) = (*)
-
-g_B :: Int -> Int
-g_B x = x <.+> 10
-
--- ### OpsA
-infixl 6 <+.>
-(<+.>) :: Int -> Int -> Int
-(<+.>) = (+)
-
-f_A :: Int -> Int
-f_A x = x <+.> 10
-
 -- ### Counter
 data Tally_C = Tally_C
   { total_C :: Int
@@ -40,3 +21,22 @@ count_C :: String -> Tally_C
 count_C s =
   let m = DataMapStrict.fromListWith (+) [(c, 1 :: Int) | c <- s]
    in Tally_C {total_C = length s, distinct_C = DataMapStrict.size m}
+
+-- ### OpsA
+infixl 6 <+.>
+(<+.>) :: Int -> Int -> Int
+(<+.>) = (+)
+
+f_A :: Int -> Int
+f_A x = x <+.> 10
+
+-- ### OpsB
+(<.+>) :: Int -> Int -> Int
+(<.+>) = (*)
+
+g_B :: Int -> Int
+g_B x = x <.+> 10
+
+-- ### Plain
+plain_ :: Int -> Int
+plain_ = negate

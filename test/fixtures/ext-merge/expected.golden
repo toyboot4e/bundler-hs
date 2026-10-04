@@ -15,6 +15,10 @@ main = do
   print (rankedCB [3, 1, 2])
   print (MyMap.singleton (1 :: Int) "user alias survives")
 
+-- ### CountA
+countUpCA :: [Int] -> [(Int, Int)]
+countUpCA xs = Data.Map.Strict.toList (Data.Map.Strict.fromListWith (+) [(x, 1) | x <- xs])
+
 -- ### CountB
 rankedCB :: [Int] -> [(Int, String)]
 rankedCB xs =
@@ -24,7 +28,3 @@ rankedCB xs =
         (Data.Map.Strict.fromList
            (zip (Data.List.sortBy (Data.Ord.comparing negate) xs) ["a", "b", "c"]))
   ]
-
--- ### CountA
-countUpCA :: [Int] -> [(Int, Int)]
-countUpCA xs = Data.Map.Strict.toList (Data.Map.Strict.fromListWith (+) [(x, 1) | x <- xs])

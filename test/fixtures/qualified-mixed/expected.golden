@@ -9,13 +9,6 @@ module Main
 main :: IO ()
 main = print (incU 1 + decU 2 + twiceH 3 + call 4)
 
--- ### Util
-incU :: Int -> Int
-incU = (+ 1)
-
-decU :: Int -> Int
-decU = subtract 1
-
 -- ### Helper
 twiceH :: Int -> Int
 twiceH = (* 2)
@@ -23,3 +16,10 @@ twiceH = (* 2)
 -- ### Caller
 call :: Int -> Int
 call = twiceH
+
+-- ### Util
+incU :: Int -> Int
+incU = (+ 1)
+
+decU :: Int -> Int
+decU = subtract 1

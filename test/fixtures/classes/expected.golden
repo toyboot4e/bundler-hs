@@ -26,6 +26,13 @@ main = do
   print (indentP (Box 1))
   print (Tag 7)
 
+-- ### Decoy
+display :: Int -> String
+display n = "<" <> Prelude.show n <> ">"
+
+showD :: Int -> String
+showD = display
+
 -- ### Pretty
 class PrettyP a where
   prettyP :: a -> String
@@ -34,10 +41,3 @@ class PrettyP a where
 
 instance PrettyP Int where
   prettyP = show
-
--- ### Decoy
-display :: Int -> String
-display n = "<" <> Prelude.show n <> ">"
-
-showD :: Int -> String
-showD = display

@@ -14,13 +14,13 @@ sumUp =
            0 -> 1
            n -> n)
 
--- ### Algo.B
-solveBB :: [Int] -> Int
-solveBB xs = sumUp xs * 2
-
 -- ### Algo.A
 solveAA :: [Int] -> Int
 solveAA xs = sumUp xs + 1
+
+-- ### Algo.B
+solveBB :: [Int] -> Int
+solveBB xs = sumUp xs * 2
 
 main :: IO ()
 main = do

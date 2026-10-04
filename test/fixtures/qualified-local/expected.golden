@@ -9,10 +9,6 @@ main = do
   print (sizeA h)
   print (fB 41)
 
--- ### Beta
-fB :: Int -> Int
-fB = succ
-
 -- ### Alpha
 data HeapA = HeapA
   { itemsA :: [Int]
@@ -27,3 +23,7 @@ pushA x h = HeapA {itemsA = x : itemsA h, sizeA = sizeA h + 1}
 
 fA :: HeapA -> Int
 fA h = sum (itemsA h) + sizeA h
+
+-- ### Beta
+fB :: Int -> Int
+fB = succ

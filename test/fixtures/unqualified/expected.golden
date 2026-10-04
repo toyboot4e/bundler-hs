@@ -10,6 +10,13 @@ main = do
   let p = MkPair {left = 1, right = 2}
   print (left p + right p)
 
+-- ### Extra
+twice :: Int -> Int
+twice x = x * 2
+
+unused :: Int
+unused = 99
+
 -- ### Util
 data Pair = MkPair
   { left :: Int
@@ -24,10 +31,3 @@ clamp lo hi = max lo . min hi
 
 private :: Int
 private = 0
-
--- ### Extra
-twice :: Int -> Int
-twice x = x * 2
-
-unused :: Int
-unused = 99
