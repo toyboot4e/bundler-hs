@@ -35,7 +35,7 @@ In competitive programming, you submit your `Main.hs` file only. If you want to 
 For instance, say this is one of your library modules:
 
 ```haskell
--- YourLibrary/Module.hs
+-- MyLibrary/Module.hs
 primeNumbers :: [Int]
 primeNumbers = [2, 3, 5, 7, 11, 13]
 ```
@@ -44,7 +44,7 @@ And this is your solution file:
 
 ```haskell
 -- Main.hs
-import YourLibrary.Module (primeNumbers)
+import MyLibrary.Module (primeNumbers)
 
 main :: IO ()
 main = do
@@ -58,7 +58,7 @@ main :: IO ()
 main = do
   print . take 3 $ primeNumbers
 
--- ### YourLibrary.Module
+-- ### MyLibrary.Module
 primeNumbers :: [Int]
 primeNumbers = [2, 3, 5, 7, 11, 13]
 ```
@@ -70,21 +70,21 @@ Notice that the `M.primeNumbers` is now expanded as `primeNumbers`.
 Your function name may conflict with each other. Take the following case as an example:
 
 ```haskell
--- YourLibrary/Math/MyFunc1.hs
+-- MyLibrary/Math/MyFunc1.hs
 f :: Int
 f = 10
 ```
 
 ```haskell
--- YourLibrary/Math/MyFunc2.hs
+-- MyLibrary/Math/MyFunc2.hs
 f :: Int
 f = 77
 ```
 
 ```haskell
 -- Main.hs
-import YourLibrary.Math.MyFunc1 qualified as F1
-import YourLibrary.Math.MyFunc2 qualified as F2
+import MyLibrary.Math.MyFunc1 qualified as F1
+import MyLibrary.Math.MyFunc2 qualified as F2
 
 main :: IO ()
 main = print $ F1.f + F2.f
@@ -96,13 +96,13 @@ In such a case, each name-conflicting function will be renamed as follows:
 main :: IO ()
 main = print $ fF1 + fF2
 
--- ### YourLibrary.Math.MyFunc2
-fF2 :: Int
-fF2 = 77
-
--- ### YourLibrary.Math.MyFunc1
+-- ### MyLibrary.Math.MyFunc1
 fF1 :: Int
 fF1 = 10
+
+-- ### MyLibrary.Math.MyFunc2
+fF2 :: Int
+fF2 = 77
 ```
 
 By default, conflicting function names are given a suffix, and the shortest one that keeps the bundle collision-free wins:
@@ -110,7 +110,7 @@ By default, conflicting function names are given a suffix, and the shortest one 
 1. The alias of your own `qualified ... as` import (`fF1`)
 2. The uppercase letters of the last component of the module name (`fMF`)
 3. That component itself (`fMyFunc1`)
-4. The whole module name, flattened (`fYourLibraryMathMyFunc1`)
+4. The whole module name, flattened (`fMyLibraryMathMyFunc1`)
 
 Operators cannot carry a suffix, so they always keep their name. Make sure they have unique names, or use `--rename-cmd` to resolve it.
 
@@ -128,7 +128,7 @@ sort :: Int -> [(Int, Int)] -> [(Int, Int)]
 sort = {- ... -}
 ```
 
-The bundle also emits `import Prelude hiding (sort)`, and it may conflict with your code that's using `sort` in the global scope. `bundler-hs` does not resolve such conflicts. and your library must be written to avoid them.
+The bundle also emits `import Prelude hiding (sort)`, and it may conflict with your code that's using `sort` in the global scope. `bundler-hs` does not resolve such conflicts, and your library must be written to avoid them.
 
 ### Language extension unification
 
@@ -136,19 +136,20 @@ The bundle also emits `import Prelude hiding (sort)`, and it may conflict with y
 
 ### CPP
 
-The `CPP` extension is handled separately from the pragma union. They are preserved into the bundle, and are not applied renaming:
+The `CPP` extension is handled separately from the pragma union. The CPP directives are preserved into the bundle, while the declarations inside every branch are renamed as usual:
 
 ```haskell
+-- Expanded from `MyLibrary/Debug.hs`:
 #ifdef DEBUG
-debug :: Bool
-debug = True
+debugD :: Bool
+debugD = True
 #else
-debug :: Bool
-debug = False
+debugD :: Bool
+debugD = False
 #endif
 ```
 
-Note that `CPP` support is very specific. Any other use case than above is not expected.
+The support of `CPP` is very limited, and the above is the only expected use case.
 
 ### Tree shaking
 
@@ -168,13 +169,13 @@ bundler-hs Main.hs --lib path/to/your/library --tree-shake-lib > submission.hs
 
 ### Minification
 
-You can shrink the bundle when the judge limits the source size:
+You can shrink the bundle when the judge limits the source size, or to shrink non-solution part of your submission:
 
-- `--minify-lib` collapses the expanded library into one layout-free line. Comments are dropped.
+- `--minify-lib` shrinks the bundled library into one module, dropping comments.
 - `--minify-app` does the same to your own declarations.
 - `--minify-import` puts the whole import section on one line.
 - `--minify-language-extensions` combines every `LANGUAGE` pragma into one `{-# LANGUAGE A, B, ... #-}` line.
-- `--minify` turns on all of them but `--minify-app`, so your own code stays readable.
+- `--minify` turns on all of them but `--minify-app`.
 
 ```sh
 bundler-hs Main.hs --lib path/to/your/library --minify > submission.hs
@@ -192,7 +193,7 @@ The output is formatted with [hindent](https://github.com/mihaimaruseac/hindent)
 
 Formatting is not preserved, as described in the `Formatting` section.
 
-The generated code may not compile or run correctly even if your original code is correct. Basically, your imports and language extensions must not conflict with each other. An open import (e.g., `import Data.List`) often conflicts with other import. Test with your library before contests.
+The generated code may not compile or run correctly even if your original code is correct. Basically, your imports and language extensions must not conflict with each other. An open import (e.g., `import Data.List`) often conflicts with other import. Test with your library before contests!
 
 ## Development
 
