@@ -192,7 +192,7 @@ The output is formatted with [hindent](https://github.com/mihaimaruseac/hindent)
 
 Formatting is not preserved, as described in the `Formatting` section.
 
-The generated code may not compile or run correctly even if your original code is correct. Basically, your imports and language extensions must not conflict with each other. An open import (e.g., `import Data.List`) often conflicts with other import. Test with your library before contests!
+The generated code may not compile or run correctly even if your original code is correct. Basically, your imports and language extensions must be additive, and they must not conflict with each other. An open import (e.g., `import Data.List`) often conflicts with other import. Test with your library before contests!
 
 ## Development
 
