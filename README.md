@@ -1,13 +1,17 @@
 # bundler-hs
 
-`bundler-hs` bundles a Haskell solution file and the local library modules it imports into a single file for competitive programming submissions. It handles qualified imports: `A.f` and `B.f` can coexist, renamed to `fA` and `fB`. Names that nothing competes for keep their original spelling, and `--tree-shake` leaves out the library code you never reach.
+`bundler-hs` bundles a Haskell solution file and local library modules into a single file for competitive programming submissions.
+
+- It handles qualified imports. `A.f` and `B.f` can coexist, renamed to `fA` and `fB`.
+- Use the `--tree-shake` option to drop unused code.
+- Use the `--minify` option to minify your templates.
 
 ## Installation
 
 Run the Nix flake directly:
 
 ```sh
-$ nix run github:toyboot4e/bundler-hs
+nix run github:toyboot4e/bundler-hs
 ```
 
 Or, clone the repository and run `cabal install`.
@@ -17,76 +21,124 @@ Or, clone the repository and run `cabal install`.
 Pass your solution file and your library directory. The bundle is printed to stdout:
 
 ```sh
-$ bundler-hs Main.hs --lib path/to/your/library > submission.hs
+bundler-hs Main.hs --lib path/to/your/library > submission.hs
 ```
 
 See `bundler-hs --help` for the full list of options.
 
 ## Features
 
-### Import unification and renaming
+### Import bundling
 
-Local library modules are merged into one flat namespace, and names are renamed only as far as that takes. Each file is parsed with its own imports in scope, and the bundle merges the external imports of every file.
+In competitive programming, you submit your `Main.hs` file only. If you want to have a separate library, you need to bundle (expand) the library modules.
 
-A name keeps its original spelling when nothing in the bundle competes for it. That takes two things. Nothing may name its module, meaning no `qualified` import of it and no `M.f` written into it. Naming a module says where a name comes from, and the bundle goes on saying it, so `import qualified Deque as D` renames the whole module and so does a single `Deque.push` written under a plain `import Deque` (or reached through a re-export module). And nothing else may claim the name: not another library module, not your own top level, not Prelude, not one of your import lists, and not a name the bundle writes that only an external import can be providing.
-
-```haskell
-import Deque   -- push  ->  push
-```
-
-That last one is how an open import gets a say. `import Control.Monad.State.Class` does not list what it brings in, but a bundle that writes `modify` without any local module defining it has to be getting it from there, so a library's own `modify` moves aside. A name nothing writes is left alone, even when an open import turns out to export it too, which the limitations below cover.
-
-Every other name takes its module's suffix, and the shortest suffix that keeps the bundle collision-free wins:
-
-1. the alias of your own `qualified ... as` import,
-2. the initials of the last component of the module name,
-3. that component itself,
-4. the whole module name, flattened.
+For instance, say this is one of your library modules:
 
 ```haskell
-import qualified SuffixArray as SA   -- build  ->  buildSA
-import qualified Data.Deque          -- push   ->  pushD, else pushDeque, else pushDataDeque
+-- YourLibrary/Module.hs
+primeNumbers :: [Int]
+primeNumbers = [2, 3, 5, 7, 11, 13]
 ```
 
-Operators cannot carry a suffix, so they always keep their name, which makes two library modules exporting the same operator an error, resolvable with `--rename-cmd`. That command is told the suffix the default rule settled on (empty for a name that keeps its spelling), so `echo "$name$suffix"` reproduces the default behavior.
+And this is your solution file:
 
-Binding one alias to two modules is an error wherever the bundler has to rewrite the references, which means anywhere in a library module, and in your own file when a local module is one of the two. Two external modules under one alias in your own file are left alone, because your imports survive as written and GHC unions their scope.
+```haskell
+-- Main.hs
+import YourLibrary.Module (primeNumbers)
 
-In library modules, `import Prelude hiding (…)` lists are pruned when the renames make them unnecessary. A list that cannot be pruned is carried into the bundle, where it governs the whole merged module rather than the one library file that wrote it. When your own file has no Prelude import of its own, the bundle also emits a plain `import Prelude` so your code keeps the full implicit Prelude, and the leftover hiding stops taking effect.
-
-### Tree shaking
-
-Off by default. `--tree-shake-lib` keeps only the library declarations your code actually reaches, `--tree-shake-app` does the same for your own file, and `--tree-shake` turns on both:
-
-```sh
-$ bundler-hs Main.hs --lib path/to/your/library --tree-shake-lib > submission.hs
+main :: IO ()
+main = do
+  print . take 3 $ primeNumbers
 ```
 
-Reachability is decided before renaming, so what goes does not compete for spellings either: a dropped `Util.sort` leaves `sort` free for whoever survives.
+`bundler-hs` will bundle your solution file and your library as follows:
 
-The roots are every declaration of your own file for `--tree-shake-lib`. For `--tree-shake-app` they are your module's export list, or `main` alone when the file has no export list and is `Main` (a file with no module header is `Main`). Any other module without an export list exports everything it defines, so nothing of it can go.
+```haskell
+main :: IO ()
+main = do
+  print . take 3 $ primeNumbers
 
-What a declaration needs is read generously: every name written anywhere inside it counts, local binders included, so the analysis errs towards keeping code. Only declarations that never stand on their own are dropped without being named:
+-- ### YourLibrary.Module
+primeNumbers :: [Int]
+primeNumbers = [2, 3, 5, 7, 11, 13]
+```
 
-- an instance goes when a local class or type of its head goes, and stays when its head is entirely external (an orphan instance is always kept),
-- a type signature, a fixity declaration or an `INLINE` pragma goes with the binding it annotates. A pragma the bundler does not recognize is kept whenever any name it mentions survives, which can only keep code alive, never drop it.
+Notice that the `M.primeNumbers` is now expanded as `primeNumbers`.
 
-A module that loses every declaration loses its banner, its language pragmas, and its external imports along with it. Comments written directly above a dropped declaration of your own file go with it.
+### Renaming qualified import names
 
-Preserved CPP conditionals are analysed with every branch in play, so a declaration only one branch uses still survives. A conditional left enclosing nothing is dropped like any other empty one.
+Your function name may conflict with each other. Take the following case as an example:
+
+```haskell
+-- YourLibrary/Math/MyFunc1.hs
+f :: Int
+f = 10
+```
+
+```haskell
+-- YourLibrary/Math/MyFunc2.hs
+f :: Int
+f = 77
+```
+
+```haskell
+-- Main.hs
+import YourLibrary.Math.MyFunc1 qualified as F1
+import YourLibrary.Math.MyFunc2 qualified as F2
+
+main :: IO ()
+main = print $ F1.f + F2.f
+```
+
+In such a case, each name-conflicting function will be renamed as follows:
+
+```haskell
+main :: IO ()
+main = print $ fF1 + fF2
+
+-- ### YourLibrary.Math.MyFunc2
+fF2 :: Int
+fF2 = 77
+
+-- ### YourLibrary.Math.MyFunc1
+fF1 :: Int
+fF1 = 10
+```
+
+By default, conflicting function names are given a suffix, and the shortest one that keeps the bundle collision-free wins:
+
+1. The alias of your own `qualified ... as` import (`fF1`)
+2. The uppercase letters of the last component of the module name (`fMF`)
+3. That component itself (`fMyFunc1`)
+4. The whole module name, flattened (`fYourLibraryMathMyFunc1`)
+
+Operators cannot carry a suffix, so they always keep their name. Make sure they have unique names, or use `--rename-cmd` to resolve it.
+
+### Import unification
+
+Imports in your submission file and your local libraries in use will be unified. This can cause some troubles.
+
+For instance, one of your modules may hide some of the items it imports:
+
+```haskell
+-- MyLibrary/Mo.hs
+import Prelude hiding (sort)
+
+sort :: Int -> [(Int, Int)] -> [(Int, Int)]
+sort = {- ... -}
+```
+
+The bundle also emits `import Prelude hiding (sort)`, and it may conflict with your code that's using `sort` in the global scope. `bundler-hs` does not resolve such conflicts. and your library must be written to avoid them.
 
 ### Language extension unification
 
-The bundle emits the union of the `LANGUAGE` pragmas in effect for every file, that is, each file's own pragmas plus the `default-language` / `default-extensions` of its cabal project. Conflicting combinations can still fail to compile, which the bundler cannot prevent.
+`bundler-hs` emits the union of the `LANGUAGE` pragmas in every file and the `default-language` / `default-extensions` of its cabal project. Conflicting combinations can fail to compile.
 
 ### CPP
 
-CPP is handled separately from the pragma union. Directives are **preserved** into the bundle, in your own file and in library modules alike, with every branch of a library conditional renamed. Nothing is decided at bundle time, so the compiler that builds the bundle picks the branch just as it would have before bundling.
-
-That keeps one bundle usable for both purposes. A local build whose `cpp-options` define `DEBUG` gets the debug branch, and a judge compiling the same file without them gets the other one:
+The `CPP` extension is handled separately from the pragma union. They are preserved into the bundle, and are not applied renaming:
 
 ```haskell
--- in a library module, and still in the bundle
 #ifdef DEBUG
 debug :: Bool
 debug = True
@@ -96,61 +148,51 @@ debug = False
 #endif
 ```
 
-A conditional left enclosing nothing is dropped, which happens when the imports or header pragmas between it were hoisted into the bundle's own import and pragma blocks.
+Note that `CPP` support is very specific. Any other use case than above is not expected.
 
-Under `--minify-lib` a conditional would otherwise split the library section into a line before it and a line after it. Top-level order carries no meaning in Haskell, so the conditionals are moved to the end of the library section instead and everything else stays on one line. Unminified output leaves every declaration where it was written.
+### Tree shaking
 
-#### When a library module is evaluated instead
+You can use the tree-shaking options to drop unused code from your bundled output:
 
-Some modules cannot be preserved. A library module is run through the preprocessor whole when:
-
-- It uses `#define`, `#undef`, or `#include`. A macro body is opaque text that the renamer cannot rewrite, so `#define INNER helper` sitting beside a `helper` that gets renamed would leave the expansion pointing at a name no longer there. Expansion has to come first.
-- Its own cabal project supplies macros through `cpp-options` that your project does not. Those disappear along with the package, so the branch has to be decided while they are still known.
-- A directive cuts through the middle of a declaration, where blanking it out would change the meaning.
-
-The macros used for that evaluation are the ones GHC will have when it compiles the bundle. Because the bundle is a single file built inside **your** project, they come from your project's `cpp-options`, not the library's. A library project's own `cpp-options` only fill in macros your project says nothing about.
-
-Conditionals in the cabal file are resolved the way a plain `cabal build` resolves them. `os`, `arch`, and `impl(ghc)` are decided against the host, and `if flag(debug)` follows the flag's value in the build plan: the flag's declared `default`, overridden by any assignment in `cabal.project`, then `cabal.project.freeze`, then `cabal.project.local`, later files winning. Both `constraints:` entries and `package NAME` / `flags:` stanzas are read, so all of these turn the flag on:
-
-```
-constraints: my-lib +debug
-
-package my-lib
-  flags: +debug
-```
-
-Environment variables play no part, because they play no part for cabal either. `DEBUG=1 cabal build` does not define `DEBUG`. Only the flag does.
-
-Use `-D NAME[=VALUE]` (repeatable) to supply a macro yourself. It takes precedence over both projects:
+- `--tree-shake-lib` keeps only the library declarations your code actually reaches.
+- `--tree-shake-app` does the same for your solution file.
+- `--tree-shake` turns on both of them.
 
 ```sh
-$ bundler-hs Main.hs --lib path/to/your/library -D DEBUG
+bundler-hs Main.hs --lib path/to/your/library --tree-shake-lib > submission.hs
 ```
 
-Note that `-D` only affects modules that are evaluated. A preserved conditional is the compiler's to decide, not the bundler's, so `-D` will not force one of its branches.
+- An `instance` is removed only when a local class or type of its head goes (an orphan instance is always kept).
+- A module that loses every declaration loses its banner, its language pragmas, and its external imports along with it.
+- CPP conditionals are analysed with every branch, so a declaration only one branch uses survives.
 
-### Header preservation
+### Minification
 
-The comments and pragmas above your module header are copied into the bundle verbatim, so a banner comment or an `{- ORMOLU_DISABLE -}` marker survives. Pragmas picked up from the cabal defaults and the library modules are appended below them.
+You can shrink the bundle when the judge limits the source size:
+
+- `--minify-lib` collapses the expanded library into one layout-free line. Comments are dropped.
+- `--minify-app` does the same to your own declarations.
+- `--minify-import` puts the whole import section on one line.
+- `--minify-language-extensions` combines every `LANGUAGE` pragma into one `{-# LANGUAGE A, B, ... #-}` line.
+- `--minify` turns on all of them but `--minify-app`, so your own code stays readable.
+
+```sh
+bundler-hs Main.hs --lib path/to/your/library --minify > submission.hs
+```
 
 ### Formatting
 
+`bundler-hs` uses `ghc-lib-parser` to recognize your code and operate on the AST for renaming etc., and then generates the bundled code from it. Therefore, the original format of your code will not be preserved.
+
 The output is formatted with [hindent](https://github.com/mihaimaruseac/hindent) by default. Use the `--format-cmd` option to substitute another formatter.
 
-> [ormolu](https://github.com/tweag/ormolu) does not work as expected. Because we parse the code and operate on the AST, the printed output has newlines in unusual places that ormolu does not handle well.
+> [ormolu](https://github.com/tweag/ormolu) does not work as expected, because the AST does not preserve your newlines.
 
 ## Limitations
 
-**The generated code is not guaranteed to compile or run correctly** even if your original code is correct. Make sure to test it before submitting. You may need to adjust your code so it still compiles under the merged imports and language extensions of the bundle.
+Formatting is not preserved, as described in the `Formatting` section.
 
-Other known limitations:
-
-- An **open import** (`import Data.List`) is carried into the bundle as the library wrote it, where it is in scope for the whole merged module rather than the one file that asked for it. A name the bundle keeps and that module also exports is then an ambiguous occurrence at every use, and so is a name arriving through a `T(..)` item of an import kept as written, such as `import Control.Monad.IO.Class (MonadIO(..))`. GHC names both sides of the clash, so you hear about it at compile time rather than in the judge's verdict. Move your name out of the way with `--rename-cmd`.
-- **Formatting is not preserved.**
-- **Library comments are not preserved.** Their CPP directives are, but their comments are not.
-- A library module that uses `#define`, `#undef`, or `#include` has all of its conditionals resolved at bundle time, not just the ones that need it. There is no `-U` to undefine a macro for that pass.
-- A `cabal.project` is only looked for from your source file up to the directory holding its `.cabal`. One sitting further up, as in some multi-package repositories, is not found.
-- Not supported (hard error): [`.hs-boot`](https://downloads.haskell.org/ghc/latest/docs/users_guide/separate_compilation.html#mutually-recursive-modules-and-hs-boot-files) files, the [`{-# SOURCE #-}`](https://downloads.haskell.org/ghc/latest/docs/users_guide/exts/pragmas.html#source-pragma) pragma, and Template Haskell splices in library modules.
+The generated code may not compile or run correctly even if your original code is correct. Basically, your imports and language extensions must not conflict with each other. An open import (e.g., `import Data.List`) often conflicts with other import. Test with your library before contests.
 
 ## Development
 
