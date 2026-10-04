@@ -4,7 +4,7 @@
 
 - It handles qualified imports. `A.f` and `B.f` can coexist, renamed to `fA` and `fB`.
 - Use the `--tree-shake` option to drop unused code.
-- Use the `--minify` option to minify your templates.
+- Use the `--minify` option to minify your templates in your submission.
 
 ## Installation
 
@@ -108,9 +108,9 @@ fF2 = 77
 By default, conflicting function names are given a suffix, and the shortest one that keeps the bundle collision-free wins:
 
 1. The alias of your own `qualified ... as` import (`fF1`)
-2. The uppercase letters of the last component of the module name (`fMF`)
-3. That component itself (`fMyFunc1`)
-4. The whole module name, flattened (`fMyLibraryMathMyFunc1`)
+2. The uppercase letters of the module name (`fMF`)
+3. The module name itself (`fMyFunc1`)
+4. The whole path of the module, flattened (`fMyLibraryMathMyFunc1`)
 
 Operators cannot carry a suffix, so they always keep their name. Make sure they have unique names, or use `--rename-cmd` to resolve it.
 
@@ -164,7 +164,6 @@ bundler-hs Main.hs --lib path/to/your/library --tree-shake-lib > submission.hs
 ```
 
 - An `instance` is removed only when a local class or type of its head goes (an orphan instance is always kept).
-- A module that loses every declaration loses its banner, its language pragmas, and its external imports along with it.
 - CPP conditionals are analysed with every branch, so a declaration only one branch uses survives.
 
 ### Minification
